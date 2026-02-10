@@ -1,6 +1,5 @@
 import { Socket, createSocket, RemoteInfo } from "dgram";
 import EventEmitter = require("events");
-import type { Logger } from "pino";
 import * as nw from "./network";
 import { interfaceAddress } from "./utils";
 
@@ -9,8 +8,13 @@ const TCNET_TIMESTAMP_PORT = 60001;
 
 type STORED_RESOLVE = (value?: nw.TCNetDataPacket | PromiseLike<nw.TCNetDataPacket> | undefined) => void;
 
+export type TCNetLogger = {
+    error: (error: Error) => void;
+    debug: (message: string) => void;
+};
+
 export class TCNetConfiguration {
-    logger: Logger | null = null;
+    logger: TCNetLogger | null = null;
     unicastPort = 65032;
     applicationCode = 0xffff;
     nodeId = Math.floor(Math.random() * 0xffff);
@@ -63,7 +67,7 @@ export class TCNetClient extends EventEmitter {
         this.config.brodcastListeningAddress ||= this.config.broadcastAddress;
     }
 
-    public get log(): Logger | null {
+    public get log(): TCNetLogger | null {
         return this.config.logger;
     }
 
@@ -118,7 +122,9 @@ export class TCNetClient extends EventEmitter {
             promisifyBasicFunction(() => this.unicastSocket.close()),
         ])
             .catch((err) => {
-                this.log?.error(err);
+                const error = new Error("Error disconnecting from TCNet");
+                error.cause = err instanceof Error ? err : new Error(String(err));
+                this.log?.error(error);
             })
             .then(() => void 0);
     }
@@ -156,8 +162,9 @@ export class TCNetClient extends EventEmitter {
 
             if (packet.length() !== -1 && packet.length() !== header.buffer.length) {
                 this.log?.debug(
-                    `Packet has the wrong length (expected: ${packet.length()}, received: ${header.buffer.length})`,
-                    header,
+                    `${
+                        nw.TCNetMessageType[header.messageType]
+                    } packet has the wrong length (expected: ${packet.length()}, received: ${header.buffer.length})`,
                 );
                 return null;
             }
