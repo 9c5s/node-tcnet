@@ -16,11 +16,11 @@ pre-commit:
 
     - name: lefthook
       glob: lefthook.yml
-      run: npx lefthook validate
+      run: bunx lefthook validate
 
     - name: actionlint
       glob: '.github/workflows/*.{yml,yaml}'
-      run: npx actionlint {staged_files}
+      run: bunx actionlint {staged_files}
 
     - name: zizmor
       glob: '.github/workflows/*.{yml,yaml}'
