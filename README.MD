@@ -22,7 +22,7 @@ It requires either Showkontrol / Beatkontrol (https://www.tc-supply.com/home) to
 
 ## Example
 ```typescript
-import { TCNetConfiguration, PioneerDJTCClient, LayerIndex } from "@s0/node-tcnet"
+import { TCNetConfiguration, PioneerDJTCClient, LayerIndex } from "@9c5s/node-tcnet"
 
 async function main() {
     // Init new TCNet configuration
