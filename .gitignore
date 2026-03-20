@@ -22,6 +22,7 @@ dist/
 # Configuration of prettier and ESLint
 !.eslintrc.js
 !.prettierrc.js
+!commitlint.config.js
 
 # Documentation
 docs/
