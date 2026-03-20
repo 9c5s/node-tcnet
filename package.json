@@ -1,5 +1,5 @@
 {
-    "name": "@s0/node-tcnet",
+    "name": "@9c5s/node-tcnet",
     "version": "0.5.1",
     "description": "Implements the TC-Supply TCNet protocol used by ShowKontrol and ProDJLink Bridge app from Pioneer",
     "exports": {
@@ -14,7 +14,7 @@
     "types": "dist/index.d.ts",
     "homepage": "https://github.com/chdxD1/node-tcnet#readme",
     "license": "MIT",
-    "repository": "github:s0/node-tcnet",
+    "repository": "github:9c5s/node-tcnet",
     "files": [
         "/dist"
     ],
