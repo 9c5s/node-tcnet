@@ -6,10 +6,11 @@ pre-commit:
   jobs:
     - name: protect-branch
       run: >
-        d=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null|sed 's#^origin/##')&&
-        [ $(git symbolic-ref --short HEAD) = $d ]&&
-        echo Direct commits to $d are not allowed. Use a feature branch.&&
-        exit 1;true
+        d=$(git symbolic-ref --quiet --short
+        refs/remotes/origin/HEAD 2>/dev/null|sed 's#^origin/##');
+        d=${d:-main};
+        [ $(git rev-parse --abbrev-ref HEAD) != $d ] ||
+        { echo Direct commits to $d are not allowed.&& exit 1; }
 
     - name: ignored-files
       run: "! git check-ignore {staged_files}"
@@ -28,15 +29,14 @@ pre-commit:
       stage_fixed: true
 
     - name: format
-      glob: "*.{ts,json,html,css}"
+      glob: "**/*.{ts,json,html,css}"
       run: npx prettier --write {staged_files}
       stage_fixed: true
 
     - name: lint
-      glob: "*.ts"
+      glob: "**/*.ts"
       exclude: '\.d\.ts$'
-      run: npx eslint --fix {staged_files}
-      stage_fixed: true
+      run: npx eslint {staged_files}
 
     - name: typecheck
       run: npx tsc --noEmit
