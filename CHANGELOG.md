@@ -1,5 +1,23 @@
 # @9c5s/node-tcnet
 
+## 0.6.0
+
+### Minor Changes
+
+-   bd8b681: BREAKING CHANGE: `TCNetConfiguration.brodcastListeningAddress` を `broadcastListeningAddress` にリネーム (タイポ修正)
+
+    `broadcastListeningAddress` のデフォルト値を `broadcastAddress` から `"0.0.0.0"` に変更
+
+### Patch Changes
+
+-   090bc6a: プロトコル実装のバグを修正
+
+    -   OptIn パケットの writeUInt8 引数順序を修正 (バージョン情報が正しく送信されなかった)
+    -   Windows 環境でブロードキャストアドレスが正しく計算されるよう修正
+    -   デフォルトユニキャストポートを仕様準拠の 65023 に修正
+    -   requestData()の 0-based layer index を 1-based ワイヤフォーマットに正しく変換するよう修正
+    -   example の packet.layer 参照を 0-based API に合わせて修正
+
 ## 0.5.1
 
 ### Patch Changes
