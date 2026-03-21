@@ -25,7 +25,7 @@ dist/
 !commitlint.config.js
 
 # Documentation
-docs/
+docs/superpowers
 
 # Submodule use within monorepos
 .turbo/
