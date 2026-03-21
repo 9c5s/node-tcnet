@@ -34,7 +34,7 @@ node-tcnetにおけるTCNet V3.5.1B仕様の実装状況をまとめる。
 
 ## 未実装DataPacketタイプ
 
-以下のDataTypeはパケット受信時にTCNetDataPacket基底クラスとしてパースされる。個別フィールドの読み取りは未実装である。
+以下のDataTypeはパケット受信時にTCNetDataPacket基底クラスとしてパースされる。個別フィールドの読み取りは未実装。
 
 | DataType | 名称 | サイズ | 備考 |
 |----------|------|--------|------|

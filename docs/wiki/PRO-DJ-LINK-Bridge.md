@@ -1,6 +1,6 @@
 # PRO DJ LINK Bridge
 
-PRO DJ LINK Bridgeは、Pioneer DJのCDJ/XDJをTCNetネットワークに接続するブリッジアプリケーションである。
+PRO DJ LINK Bridgeは、Pioneer DJのCDJ/XDJをTCNetネットワークに接続するブリッジアプリケーション。
 本ページでは、node-tcnetとBridgeを組み合わせて使用する際の通信制約とトラブルシューティングをまとめる。
 
 ## 通信制約
@@ -72,7 +72,7 @@ Bridgeとの接続が確立できない場合、以下を順に確認する。
 ### データが取得できない
 
 - Metricsの主要フィールド(BPM, speed等)はBridgeでは0が返される。これはBridge固有の制限であり、バグではない
-- MetaDataのtrackID/trackKeyが0なのも同様である。トラックの識別にはStatusパケットのtrackIDを使用する
+- MetaDataのtrackID/trackKeyが0なのも同様。トラックの識別にはStatusパケットのtrackIDを使用する
 
 ## 関連ページ
 

@@ -2,7 +2,7 @@
 
 ## 前提条件
 
-TCNetプロトコルでデータを送信するソフトウェアが必要である。
+TCNetプロトコルでデータを送信するソフトウェアが必要。
 
 - **PRO DJ LINK Bridge** (Windows / Mac) -- Pioneer DJ機器のデータをTCNetに変換する
 - **ShowKontrol** (Mac) -- TCNet対応のショーコントローラー

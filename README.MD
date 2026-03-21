@@ -2,7 +2,7 @@
 
 > フォーク元: <https://github.com/chdxD1/node-tcnet>
 
-TCNetプロトコルのNode.js実装である。Pioneer DJ / ShowKontrol / Event Imagineering GroupのTCNetプロトコル仕様に基づく。
+TCNetプロトコルのNode.js実装。Pioneer DJ / ShowKontrol / Event Imagineering GroupのTCNet仕様に準拠。
 
 ## インストール
 
@@ -36,7 +36,7 @@ await client.disconnect();
 
 ## 前提条件
 
-以下のいずれかが必要である:
+以下のいずれかが必要:
 
 - [PRO DJ LINK Bridge](https://www.pioneerdj.com/en/product/software/pro-dj-link-bridge/software/) (Windows / Mac)
 - [ShowKontrol / Beatkontrol](https://www.tc-supply.com/home) (Mac)
@@ -69,4 +69,4 @@ await client.disconnect();
 
 ## 免責事項
 
-本プロジェクトはPioneer DJおよびEvent Imagineering Groupの支援・承認を受けていない。全ての製品名・企業名は各所有者の商標または登録商標である。
+Pioneer DJおよびEvent Imagineering Groupの支援・承認を受けていない。製品名・企業名は各所有者の商標または登録商標。

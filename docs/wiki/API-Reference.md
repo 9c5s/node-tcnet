@@ -1,12 +1,12 @@
 # API Reference
 
-`@9c5s/node-tcnet` が公開するクラス、メソッド、型の一覧である。
+`@9c5s/node-tcnet` が公開するクラス、メソッド、型の一覧。
 
 ---
 
 ## TCNetConfiguration
 
-`TCNetClient`のコンストラクタに渡す設定クラスである。
+`TCNetClient`のコンストラクタに渡す設定クラス。
 省略した場合はデフォルト値が使われる。
 
 | プロパティ | 型 | デフォルト値 | 説明 |
@@ -27,7 +27,7 @@
 
 ## TCNetClient
 
-`EventEmitter`を継承するTCNetプロトコルクライアントである。
+`EventEmitter`を継承するTCNetプロトコルクライアント。
 
 ### コンストラクタ
 
@@ -102,7 +102,7 @@ sendServer(packet: TCNetPacket): Promise<void>
 
 ### TCNetManagementHeader
 
-全パケットに付与される24バイトのヘッダである。
+全パケットに付与される24バイトのヘッダ。
 
 | プロパティ | 型 | 説明 |
 | --- | --- | --- |
@@ -117,7 +117,7 @@ sendServer(packet: TCNetPacket): Promise<void>
 
 ### TCNetOptInPacket
 
-ネットワーク参加通知パケットである。
+ネットワーク参加通知パケット。
 
 | プロパティ | 型 | 説明 |
 | --- | --- | --- |
@@ -132,7 +132,7 @@ sendServer(packet: TCNetPacket): Promise<void>
 
 ### TCNetOptOutPacket
 
-ネットワーク離脱通知パケットである。
+ネットワーク離脱通知パケット。
 
 | プロパティ | 型 | 説明 |
 | --- | --- | --- |
@@ -141,7 +141,7 @@ sendServer(packet: TCNetPacket): Promise<void>
 
 ### TCNetStatusPacket
 
-ノードのステータス情報パケットである。
+ノードのステータス情報パケット。
 
 `data`プロパティを持つ。
 
@@ -152,7 +152,7 @@ sendServer(packet: TCNetPacket): Promise<void>
 | `smpteMode` | `number` | SMPTEモード |
 | `autoMasterMode` | `number` | 自動マスターモード |
 
-`layers`プロパティは8要素の配列である。
+`layers`プロパティは8要素の配列。
 
 | フィールド | 型 | 説明 |
 | --- | --- | --- |
@@ -163,7 +163,7 @@ sendServer(packet: TCNetPacket): Promise<void>
 
 ### TCNetDataPacket
 
-Dataパケットの基底クラスである。
+Dataパケットの基底クラス。
 
 | プロパティ | 型 | 説明 |
 | --- | --- | --- |
@@ -172,7 +172,7 @@ Dataパケットの基底クラスである。
 
 ### TCNetDataPacketMetrics
 
-レイヤーの再生メトリクスである。`TCNetDataPacket`を継承する。
+レイヤーの再生メトリクス。`TCNetDataPacket`を継承する。
 
 `data`プロパティを持つ。
 
@@ -191,8 +191,8 @@ Dataパケットの基底クラスである。
 
 ### TCNetDataPacketMetadata
 
-レイヤーのトラックメタデータである。`TCNetDataPacket`を継承する。
-プロトコルバージョン3.5以上が必要である。
+レイヤーのトラックメタデータ。`TCNetDataPacket`を継承する。
+プロトコルバージョン3.5以上が必要。
 
 `info`プロパティを持つ。
 
@@ -205,9 +205,9 @@ Dataパケットの基底クラスである。
 
 ### TCNetTimePacket
 
-タイムコードパケットである。毎秒ポート60001で受信する。
+タイムコードパケット。毎秒ポート60001で受信する。
 
-`layers`プロパティ(getter)は8要素の配列である。
+`layers`プロパティ(getter)は8要素の配列。
 
 | フィールド | 型 | 説明 |
 | --- | --- | --- |
@@ -225,7 +225,7 @@ Dataパケットの基底クラスである。
 
 ### TCNetMessageType
 
-パケットのメッセージ種別である。
+パケットのメッセージ種別。
 
 | 値 | 名前 | 説明 |
 | --- | --- | --- |
@@ -245,7 +245,7 @@ Dataパケットの基底クラスである。
 
 ### TCNetDataPacketType
 
-Dataパケットのサブタイプである。
+Dataパケットのサブタイプ。
 
 | 値 | 名前 | 説明 |
 | --- | --- | --- |
@@ -259,7 +259,7 @@ Dataパケットのサブタイプである。
 
 ### NodeType
 
-ノード種別である。
+ノード種別。
 
 | 値 | 名前 |
 | --- | --- |
@@ -270,7 +270,7 @@ Dataパケットのサブタイプである。
 
 ### TCNetLayerStatus
 
-レイヤーの再生状態である。
+レイヤーの再生状態。
 
 | 値 | 名前 |
 | --- | --- |
@@ -287,7 +287,7 @@ Dataパケットのサブタイプである。
 
 ### TCNetTimecodeState
 
-タイムコードの状態である。
+タイムコードの状態。
 
 | 値 | 名前 |
 | --- | --- |
@@ -297,7 +297,7 @@ Dataパケットのサブタイプである。
 
 ### TCNetLayerSyncMaster
 
-レイヤーの同期マスター設定である。
+レイヤーの同期マスター設定。
 
 | 値 | 名前 |
 | --- | --- |
