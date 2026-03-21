@@ -44,6 +44,15 @@ pre-commit:
     - name: build
       run: npm run build
 
+    - name: mdlint
+      glob: "**/*.{md,MD}"
+      exclude: 'node_modules|CHANGELOG\.md'
+      run: npx markdownlint-cli2 {staged_files}
+
+    - name: textlint
+      glob: "docs/wiki/**/*.md"
+      run: npx textlint {staged_files}
+
 commit-msg:
   jobs:
     - name: commitlint
