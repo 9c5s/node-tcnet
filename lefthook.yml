@@ -24,7 +24,7 @@ pre-commit:
       run: bunx actionlint {staged_files}
 
     - name: zizmor
-      glob: '.github/workflows/*.{yml,yaml}'
+      glob: '.github/{workflows/*.{yml,yaml},dependabot.yml}'
       run: bunx zizmor --fix --pedantic {staged_files}
       stage_fixed: true
 
