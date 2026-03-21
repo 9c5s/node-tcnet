@@ -198,7 +198,10 @@ export class TCNetClient extends EventEmitter {
                     if (this.connectedHandler) {
                         this.connected = true;
                         // 即座にOptInを送信してMasterに登録する
-                        this.announceApp().catch(() => {});
+                        this.announceApp().catch((err) => {
+                            const error = err instanceof Error ? err : new Error(String(err));
+                            this.log?.debug(`Failed to announce on connect: ${error.message}`);
+                        });
                         this.connectedHandler();
                         this.connectedHandler = null;
                     }
@@ -385,6 +388,11 @@ export class TCNetClient extends EventEmitter {
      */
     public requestData(dataType: number, layer: number): Promise<nw.TCNetDataPacket> {
         return new Promise((resolve, reject) => {
+            if (!Number.isInteger(layer) || layer < 0 || layer > 7) {
+                reject(new RangeError("layer must be an integer between 0 and 7"));
+                return;
+            }
+
             const request = new nw.TCNetRequestPacket();
             request.dataType = dataType;
             request.layer = layer + 1; // APIは0-based、仕様は1-based
