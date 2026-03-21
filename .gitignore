@@ -22,7 +22,7 @@ dist/
 # Configuration of prettier and ESLint
 !.eslintrc.js
 !.prettierrc.js
-!commitlint.config.js
+!commitlint.config.mjs
 
 # Documentation
 docs/superpowers
@@ -30,4 +30,4 @@ docs/superpowers
 # Submodule use within monorepos
 .turbo/
 
-.tsbuildinfo
+*.tsbuildinfo

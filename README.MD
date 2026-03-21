@@ -15,23 +15,27 @@ npm install @9c5s/node-tcnet
 ```typescript
 import { TCNetClient, TCNetConfiguration, TCNetDataPacketType, TCNetDataPacketMetadata } from "@9c5s/node-tcnet";
 
-const config = new TCNetConfiguration();
-config.broadcastInterface = "10GbE"; // ネットワークインターフェース名
+async function main() {
+  const config = new TCNetConfiguration();
+  config.broadcastInterface = "10GbE"; // ネットワークインターフェース名
 
-const client = new TCNetClient(config);
+  const client = new TCNetClient(config);
 
-client.on("broadcast", (packet) => console.log(packet));
-client.on("data", (packet) => console.log(packet));
+  client.on("broadcast", (packet) => console.log(packet));
+  client.on("data", (packet) => console.log(packet));
 
-await client.connect();
+  await client.connect();
 
-// メタデータ取得 (layer: 0-based)
-const meta = await client.requestData(TCNetDataPacketType.MetaData, 0);
-if (meta instanceof TCNetDataPacketMetadata && meta.info) {
-  console.log(meta.info.trackArtist, meta.info.trackTitle);
+  // メタデータ取得 (layer: 0-based)
+  const meta = await client.requestData(TCNetDataPacketType.MetaData, 0);
+  if (meta instanceof TCNetDataPacketMetadata && meta.info) {
+    console.log(meta.info.trackArtist, meta.info.trackTitle);
+  }
+
+  await client.disconnect();
 }
 
-await client.disconnect();
+main().catch(console.error);
 ```
 
 ## 前提条件
