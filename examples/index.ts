@@ -23,7 +23,6 @@ console.log(`Connecting to TCNet on ${INTERFACE}`);
 const config = new TCNetConfiguration();
 
 config.broadcastInterface = INTERFACE;
-config.brodcastListeningAddress = "0.0.0.0";
 
 const client = new TCNetClient(config);
 
