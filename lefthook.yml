@@ -50,7 +50,7 @@ pre-commit:
       run: npx markdownlint-cli2 {staged_files}
 
     - name: textlint
-      glob: "docs/wiki/**/*.md"
+      glob: "{docs/wiki/**/*.md,README.MD}"
       run: npx textlint {staged_files}
 
 commit-msg:
