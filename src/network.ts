@@ -127,9 +127,9 @@ export class TCNetOptInPacket extends TCNetPacket {
         this.buffer.writeUInt16LE(this.uptime, 28);
         this.buffer.write(this.vendorName.padEnd(16, "\x00"), 32, "ascii");
         this.buffer.write(this.appName.padEnd(16, "\x00"), 48, "ascii");
-        this.buffer.writeUInt8(64, this.majorVersion);
-        this.buffer.writeUInt8(65, this.minorVersion);
-        this.buffer.writeUInt8(66, this.bugVersion);
+        this.buffer.writeUInt8(this.majorVersion, 64);
+        this.buffer.writeUInt8(this.minorVersion, 65);
+        this.buffer.writeUInt8(this.bugVersion, 66);
     }
 
     length(): number {

@@ -73,8 +73,7 @@ const run = async () => {
 
     client.on("data", (packet: TCNetDataPacket) => {
         if (packet instanceof TCNetDataPacketMetrics) {
-            // Correct for 1-based index
-            const info = layerInfo[packet.layer - 1];
+            const info = layerInfo[packet.layer];
             if (info) {
                 info.pitchBend = packet.data?.pitchBend ?? 0;
                 info.speed = 1 + info.pitchBend / 10000;
