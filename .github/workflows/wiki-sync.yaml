@@ -1,0 +1,28 @@
+name: Sync Wiki
+
+on:
+  push:
+    branches: [main]
+    paths: ["docs/wiki/**"]
+
+# デフォルトパーミッションを無効化し、ジョブレベルで最小権限を付与する
+permissions: {}
+
+concurrency:
+  group: wiki-sync-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    name: Sync docs/wiki to GitHub Wiki
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # GitHub Wikiリポジトリへのpushに必要
+    steps:
+      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        with:
+          persist-credentials: false
+      - uses: Andrew-Chen-Wang/github-wiki-action@50650fccf3a10f741995523cf9708c53cec8912a # v4
+        with:
+          path: docs/wiki
+          token: ${{ secrets.GITHUB_TOKEN }}
