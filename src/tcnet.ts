@@ -120,6 +120,7 @@ export class TCNetClient extends EventEmitter {
         return Promise.all([
             promisifyBasicFunction(() => this.broadcastSocket.close()),
             promisifyBasicFunction(() => this.unicastSocket.close()),
+            promisifyBasicFunction(() => this.timestampSocket.close()),
         ])
             .catch((err) => {
                 const error = new Error("Error disconnecting from TCNet");
