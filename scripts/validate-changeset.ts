@@ -5,7 +5,7 @@
  * 検証失敗時は exit 1 でコミットをブロックする
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync } from "fs";
 import parse from "@changesets/parse";
 
 const PACKAGE_NAME = "@9c5s/node-tcnet";
