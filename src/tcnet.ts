@@ -6,7 +6,10 @@ import { interfaceAddress } from "./utils";
 const TCNET_BROADCAST_PORT = 60000;
 const TCNET_TIMESTAMP_PORT = 60001;
 
-type STORED_RESOLVE = (value?: nw.TCNetDataPacket | PromiseLike<nw.TCNetDataPacket> | undefined) => void;
+type STORED_REQUEST = {
+    resolve: (value?: nw.TCNetDataPacket | PromiseLike<nw.TCNetDataPacket> | undefined) => void;
+    timeout: NodeJS.Timeout;
+};
 
 export type TCNetLogger = {
     error: (error: Error) => void;
@@ -27,15 +30,7 @@ export class TCNetConfiguration {
     requestTimeout = 2000;
 }
 
-const promisifyBasicFunction =
-    <V, A extends unknown[]>(fn: (...args: A) => V) =>
-    (...args: A): Promise<V> => {
-        try {
-            return Promise.resolve(fn(...args));
-        } catch (err) {
-            return Promise.reject(err);
-        }
-    };
+const closeSocket = (socket: Socket): Promise<void> => new Promise((resolve) => socket.close(() => resolve()));
 
 /**
  * Low level implementation of the TCNet protocol
@@ -50,7 +45,7 @@ export class TCNetClient extends EventEmitter {
     private uptime = 0;
     private connected = false;
     private connectedHandler: (() => void) | null = null;
-    private requests: Map<string, STORED_RESOLVE> = new Map();
+    private requests: Map<string, STORED_REQUEST> = new Map();
     private announcementInterval: NodeJS.Timeout;
 
     /**
@@ -118,9 +113,9 @@ export class TCNetClient extends EventEmitter {
         this.removeAllListeners();
         this.connected = false;
         return Promise.all([
-            promisifyBasicFunction(() => this.broadcastSocket.close()),
-            promisifyBasicFunction(() => this.unicastSocket.close()),
-            promisifyBasicFunction(() => this.timestampSocket.close()),
+            closeSocket(this.broadcastSocket),
+            closeSocket(this.unicastSocket),
+            closeSocket(this.timestampSocket),
         ])
             .catch((err) => {
                 const error = new Error("Error disconnecting from TCNet");
@@ -251,9 +246,12 @@ export class TCNetClient extends EventEmitter {
                     this.emit("data", dataPacket);
                 }
 
-                const pendingRequest = this.requests.get(`${dataPacket.dataType}-${dataPacket.layer}`);
+                const key = `${dataPacket.dataType}-${dataPacket.layer}`;
+                const pendingRequest = this.requests.get(key);
                 if (pendingRequest) {
-                    pendingRequest(dataPacket);
+                    this.requests.delete(key);
+                    clearTimeout(pendingRequest.timeout);
+                    pendingRequest.resolve(dataPacket);
                 }
             }
         } else if (packet instanceof nw.TCNetOptInPacket) {
@@ -398,17 +396,20 @@ export class TCNetClient extends EventEmitter {
             request.dataType = dataType;
             request.layer = layer + 1; // APIは0-based、仕様は1-based
 
-            this.requests.set(`${dataType}-${layer}`, resolve);
-
-            setTimeout(() => {
-                if (this.requests.delete(`${dataType}-${layer}`)) {
+            const key = `${dataType}-${layer}`;
+            const timeout = setTimeout(() => {
+                if (this.requests.delete(key)) {
                     reject(new Error("Timeout while requesting data"));
                 }
             }, this.config.requestTimeout);
 
+            this.requests.set(key, { resolve, timeout });
+
             this.sendServer(request).catch((err) => {
-                this.requests.delete(`${dataType}-${layer}`);
-                reject(err);
+                if (this.requests.delete(key)) {
+                    clearTimeout(timeout);
+                    reject(err);
+                }
             });
         });
     }
