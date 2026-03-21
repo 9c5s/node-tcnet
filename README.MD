@@ -1,67 +1,76 @@
 # node-tcnet
 
-> Note: This repo is a fork of this upstream repo:
-> https://github.com/chdxD1/node-tcnet
+> フォーク元: <https://github.com/chdxD1/node-tcnet>
 
-This library tries implements the TCNet procotol of Showkontrol / Event Imagineering Group / Pioneer DJ described here: https://www.tc-supply.com/tcnet
+TCNetプロトコルのNode.js実装。Pioneer DJ / ShowKontrol / Event Imagineering GroupのTCNet仕様に準拠。
 
-It requires either Showkontrol / Beatkontrol (https://www.tc-supply.com/home) to be running on a Mac or PRO DJ LINK Bridge on Windows / Mac (https://www.pioneerdj.com/en/product/software/pro-dj-link-bridge/software/)
+## インストール
 
-## Features
-
-- [x] Connecting to a TCNet network
-- [x] Listening to status events
-- [x] Requesting song metadata of layers seperately
-- [x] Requesting song metrics of layers
-- [x] Receiving Timestamp information
-- [ ] Time Sync (similar to NTP/PTP) / BPM capabilities of TCNet
-- [ ] Other request packets like Beat Grid, Wave Form
-- [ ] Control capabilities (like stopping layers) from TCNet
-
-**This has only been tested against the Bridge software with NO DJMs or CDJs attached. Bascially this is an implementation solely on the protocol documentation. Testing on real equipment is needed.**
-
-## Example
-```typescript
-import { TCNetConfiguration, PioneerDJTCClient, LayerIndex } from "@9c5s/node-tcnet"
-
-async function main() {
-    // Init new TCNet configuration
-    const config = new TCNetConfiguration();
-
-    // Linux
-    config.broadcastInterface = "eth0";
-    // Windows
-    config.broadcastInterface = "Ethernet";
-    
-    // Init new client for Pioneer DJ TCNet
-    const client = new TCNetClient(config);
-    
-    // Wait for connect
-    await client.connect();
-
-    // Wait for data packets
-    client.on("data", (packet: TCNetDataPacket) => {
-        console.log("data", packet);
-    });
-
-    client.on("broadcast", (packet: TCNetPacket) => {
-        if (packet instanceof TCNetOptInPacket) {
-            // Don't log these packets
-            return;
-        }
-        console.log("broadcast", packet);
-    });
-}
-
-main();
+```bash
+npm install @9c5s/node-tcnet
 ```
 
-## Comparable work
-- Directly implementing ProDJLink: Implements the native protocol of Pioneer DJ players/mixers by emulating a CDJ in the network. This has the downside of trying to reverse-engineer an unknown protocol from Pioneer, with no documentation. However these libraries have some better support for other devices like the XDJ-XZ. Using TCNet has the benefit of a clear seperation between the productive Pro DJ Link network and a documented protocol.
-  1. prolink-connect (JS) by @EvanPurkhiser https://github.com/EvanPurkhiser/prolink-connect
-  2. dysentery (Java) by @Deep-Symmetry https://github.com/Deep-Symmetry/dysentery
+## 使い方
 
-## Disclaimer
+```typescript
+import { TCNetClient, TCNetConfiguration, TCNetDataPacketType, TCNetDataPacketMetadata } from "@9c5s/node-tcnet";
 
-This work has not been sponsored or endorsed by Pioneer DJ or Event Imagineering Group. All product and company names are trademarks™ or registered® trademarks of their respective holders. Use of them does not imply any affiliation with or endorsement by them.
+async function main() {
+  const config = new TCNetConfiguration();
+  config.broadcastInterface = "10GbE"; // ネットワークインターフェース名
 
+  const client = new TCNetClient(config);
+
+  client.on("broadcast", (packet) => console.log(packet));
+  client.on("data", (packet) => console.log(packet));
+
+  await client.connect();
+
+  // メタデータ取得 (layer: 0-based)
+  const meta = await client.requestData(TCNetDataPacketType.MetaData, 0);
+  if (meta instanceof TCNetDataPacketMetadata && meta.info) {
+    console.log(meta.info.trackArtist, meta.info.trackTitle);
+  }
+
+  await client.disconnect();
+}
+
+main().catch(console.error);
+```
+
+## 前提条件
+
+以下のいずれかが必要:
+
+- [PRO DJ LINK Bridge](https://www.pioneerdj.com/en/product/software/pro-dj-link-bridge/software/) (Windows / Mac)
+- [ShowKontrol / Beatkontrol](https://www.tc-supply.com/home) (Mac)
+
+## 機能
+
+- [x] TCNetネットワーク接続
+- [x] ステータスイベント受信
+- [x] メタデータリクエスト (アーティスト名、曲名)
+- [x] メトリクスリクエスト
+- [x] タイムスタンプ受信
+- [ ] Time Sync (NTP/PTP相当)
+- [ ] Beat Grid / Wave Formリクエスト
+- [ ] Control機能 (レイヤー制御)
+
+## ドキュメント
+
+詳細は[Wiki](https://github.com/9c5s/node-tcnet/wiki)を参照:
+
+- [Getting Started](https://github.com/9c5s/node-tcnet/wiki/Getting-Started) -- 導入ガイド
+- [API Reference](https://github.com/9c5s/node-tcnet/wiki/API-Reference) -- APIリファレンス
+- [PRO DJ LINK Bridge](https://github.com/9c5s/node-tcnet/wiki/PRO-DJ-LINK-Bridge) -- Bridge固有の制限
+- [TCNet Protocol](https://github.com/9c5s/node-tcnet/wiki/TCNet-Protocol) -- プロトコル仕様
+- [Contributing](https://github.com/9c5s/node-tcnet/wiki/Contributing) -- 開発への参加
+
+## 関連プロジェクト
+
+- [prolink-connect](https://github.com/EvanPurkhiser/prolink-connect) (JS) -- Pro DJ Linkプロトコル直接実装
+- [dysentery](https://github.com/Deep-Symmetry/dysentery) (Java) -- 同上
+
+## 免責事項
+
+Pioneer DJおよびEvent Imagineering Groupの支援・承認を受けていない。製品名・企業名は各所有者の商標または登録商標。
