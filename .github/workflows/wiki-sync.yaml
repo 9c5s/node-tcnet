@@ -1,11 +1,11 @@
 name: Sync Wiki
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths: ["docs/wiki/**"]
 
-# デフォルトパーミッションを無効化し、ジョブレベルで最小権限を付与する
 permissions: {}
 
 concurrency:
