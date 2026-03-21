@@ -18,7 +18,7 @@
 | `nodeName` | `string` | `"TCNET.JS"` | ノード名(ASCII 8文字以内) |
 | `vendorName` | `string` | `"CHDXD1"` | ベンダー名(ASCII 16文字以内) |
 | `appName` | `string` | `"NODE-TCNET"` | アプリケーション名(ASCII 16文字以内) |
-| `broadcastInterface` | `string \| null` | `null` | ブロードキャスト送信に使うNICの名前。指定するとbroadcastAddressを自動計算する |
+| `broadcastInterface` | `string \| null` | `null` | ブロードキャスト送信に使うNICの名前。`broadcastAddress`がデフォルト値(`"255.255.255.255"`)の場合のみ自動計算する |
 | `broadcastAddress` | `string` | `"255.255.255.255"` | ブロードキャスト送信先アドレス |
 | `broadcastListeningAddress` | `string` | `""` (実行時に`"0.0.0.0"`へ) | ブロードキャスト受信バインドアドレス |
 | `requestTimeout` | `number` | `2000` | リクエストタイムアウト(ms)。接続待ちにも使われる |

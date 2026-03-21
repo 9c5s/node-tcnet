@@ -23,8 +23,8 @@ const config = new TCNetConfiguration();
 config.broadcastInterface = "10GbE"; // Windowsのネットワークインターフェース名
 
 const client = new TCNetClient(config);
-await client.connect();
 
+// connect前にイベントハンドラを登録する
 // broadcastイベントでStatus/OptInを受信する
 client.on("broadcast", (packet) => {
   console.log(packet);
@@ -34,6 +34,8 @@ client.on("broadcast", (packet) => {
 client.on("data", (packet) => {
   console.log(packet);
 });
+
+await client.connect();
 
 await client.disconnect();
 ```
@@ -64,3 +66,7 @@ import os from "os";
 console.log(Object.keys(os.networkInterfaces()));
 // 例: [ 'Ethernet', '10GbE', 'Wi-Fi', 'Loopback Pseudo-Interface 1' ]
 ```
+
+## 次のステップ
+
+トラブルシューティングは[[PRO DJ LINK Bridge]]を参照。

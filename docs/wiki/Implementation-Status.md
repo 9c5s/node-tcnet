@@ -67,3 +67,7 @@ PR #2で修正された6件のプロトコル実装バグの概要を示す。
 | BUG-6 | requestDataのlayer+1変換が欠落 | layer=0(無効値)が送信され、Bridgeがリクエストを無視していた |
 
 BUG-2の修正はBUG-4, BUG-5と連鎖している。修正前のWindows環境ではBUG-2(broadcastAddress=IP)がユニキャスト的に動作することで、BUG-4(broadcast未検出)とBUG-5(送信ソケット)の問題を隠蔽していた。
+
+## 関連ページ
+
+Bridge固有の制限は[[PRO DJ LINK Bridge]]を参照。

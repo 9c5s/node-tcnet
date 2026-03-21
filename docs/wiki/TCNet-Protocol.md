@@ -23,6 +23,7 @@ TCNetはエンターテイメント業界向けに設計されたオープンな
 |--------|------|------|
 | 60000 | Broadcast | OptIn/OptOut, Status, Application Specific Data |
 | 60001 | Broadcast | Timeパケット |
+| 60002 | Broadcast | データパケット応答 |
 | 65023-65535 | Unicast | ユニキャストメッセージ(デフォルト: 65023) |
 
 ## ネットワーク参加手順
@@ -125,6 +126,8 @@ MessageType=200のData内のサブタイプである。
 | 50-81 | 8x4 | UInt32LE | Layer 1-C Track ID |
 | 83 | 1 | UInt8 | SMPTE Mode |
 | 84 | 1 | UInt8 | Auto Master Mode |
+| 85-99 | 15 | -- | RESERVED |
+| 100-171 | 72 | -- | APP SPECIFIC |
 | 172-299 | 8x16 | ASCII | Layer 1-C Name |
 
 ### Request(Type=20, 26バイト)
@@ -154,7 +157,7 @@ MessageType=200のData内のサブタイプである。
 |------|-----------------|-----|
 | BPM | 100倍値(UInt32LE) | 12000 = 120.00 BPM |
 | Speed | 32768 = 100%, 0 = 0%, 65536 = 200%(UInt32LE) | 32768 = 100% |
-| Pitch Bend | Speedと同様(UInt16LE) | 32768 = 100% |
+| Pitch Bend | 仕様はUInt16LE(0-65536, 32768=100%)だが、本ライブラリではInt16LEで読み取る。詳細は[[Implementation Status]]を参照 | 32768 = 100% |
 | Layer ID | 1-based(1=Layer1 ... 8=LayerC) | ワイヤ上の1がAPI上の0に対応 |
 | MetaDataテキスト | V3.5.0+はUTF-16LE、V3.4以前はUTF-8(各256バイト) | -- |
 

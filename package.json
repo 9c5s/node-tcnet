@@ -12,7 +12,7 @@
     },
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
-    "homepage": "https://github.com/chdxD1/node-tcnet#readme",
+    "homepage": "https://github.com/9c5s/node-tcnet#readme",
     "license": "MIT",
     "repository": "github:9c5s/node-tcnet",
     "files": [
@@ -42,6 +42,7 @@
         "@typescript-eslint/parser": "^4.22.1",
         "check-export-map": "^1.3.1",
         "eslint": "^7.30.0",
+        "markdownlint-cli2": "^0.21.0",
         "prettier": "^2.2.1",
         "pretty-quick": "^3.1.0",
         "textlint": "^15.5.2",
