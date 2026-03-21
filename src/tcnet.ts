@@ -15,7 +15,7 @@ export type TCNetLogger = {
 
 export class TCNetConfiguration {
     logger: TCNetLogger | null = null;
-    unicastPort = 65032;
+    unicastPort = 65023;
     applicationCode = 0xffff;
     nodeId = Math.floor(Math.random() * 0xffff);
     nodeName = "TCNET.JS";
