@@ -59,7 +59,7 @@ export class TCNetClient extends EventEmitter {
         if (this.config.broadcastInterface && this.config.broadcastAddress == "255.255.255.255") {
             this.config.broadcastAddress = interfaceAddress(this.config.broadcastInterface);
         }
-        this.config.broadcastListeningAddress ||= this.config.broadcastAddress;
+        this.config.broadcastListeningAddress ||= "0.0.0.0";
     }
 
     public get log(): TCNetLogger | null {
