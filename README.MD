@@ -1,11 +1,11 @@
 # node-tcnet
 
 > Note: This repo is a fork of this upstream repo:
-> https://github.com/chdxD1/node-tcnet
+> <https://github.com/chdxD1/node-tcnet>
 
-This library tries implements the TCNet procotol of Showkontrol / Event Imagineering Group / Pioneer DJ described here: https://www.tc-supply.com/tcnet
+This library tries implements the TCNet procotol of Showkontrol / Event Imagineering Group / Pioneer DJ described here: <https://www.tc-supply.com/tcnet>
 
-It requires either Showkontrol / Beatkontrol (https://www.tc-supply.com/home) to be running on a Mac or PRO DJ LINK Bridge on Windows / Mac (https://www.pioneerdj.com/en/product/software/pro-dj-link-bridge/software/)
+It requires either Showkontrol / Beatkontrol (<https://www.tc-supply.com/home>) to be running on a Mac or PRO DJ LINK Bridge on Windows / Mac (<https://www.pioneerdj.com/en/product/software/pro-dj-link-bridge/software/>)
 
 ## Features
 
@@ -21,6 +21,7 @@ It requires either Showkontrol / Beatkontrol (https://www.tc-supply.com/home) to
 **This has only been tested against the Bridge software with NO DJMs or CDJs attached. Bascially this is an implementation solely on the protocol documentation. Testing on real equipment is needed.**
 
 ## Example
+
 ```typescript
 import { TCNetConfiguration, PioneerDJTCClient, LayerIndex } from "@9c5s/node-tcnet"
 
@@ -57,11 +58,11 @@ main();
 ```
 
 ## Comparable work
+
 - Directly implementing ProDJLink: Implements the native protocol of Pioneer DJ players/mixers by emulating a CDJ in the network. This has the downside of trying to reverse-engineer an unknown protocol from Pioneer, with no documentation. However these libraries have some better support for other devices like the XDJ-XZ. Using TCNet has the benefit of a clear seperation between the productive Pro DJ Link network and a documented protocol.
-  1. prolink-connect (JS) by @EvanPurkhiser https://github.com/EvanPurkhiser/prolink-connect
-  2. dysentery (Java) by @Deep-Symmetry https://github.com/Deep-Symmetry/dysentery
+  1. prolink-connect (JS) by @EvanPurkhiser <https://github.com/EvanPurkhiser/prolink-connect>
+  2. dysentery (Java) by @Deep-Symmetry <https://github.com/Deep-Symmetry/dysentery>
 
 ## Disclaimer
 
 This work has not been sponsored or endorsed by Pioneer DJ or Event Imagineering Group. All product and company names are trademarks™ or registered® trademarks of their respective holders. Use of them does not imply any affiliation with or endorsement by them.
-
