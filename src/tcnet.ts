@@ -98,7 +98,7 @@ export class TCNetClient extends EventEmitter {
         this.broadcastSocket.setBroadcast(true);
 
         this.timestampSocket = createSocket({ type: "udp4", reuseAddr: true }, this.receiveTimestamp.bind(this));
-        await this.bindSocket(this.timestampSocket, TCNET_TIMESTAMP_PORT, this.config.broadcastAddress);
+        await this.bindSocket(this.timestampSocket, TCNET_TIMESTAMP_PORT, this.config.brodcastListeningAddress);
         this.timestampSocket.setBroadcast(true);
 
         this.unicastSocket = createSocket({ type: "udp4", reuseAddr: false }, this.receiveUnicast.bind(this));
@@ -189,9 +189,23 @@ export class TCNetClient extends EventEmitter {
         const packet: nw.TCNetPacket | null = this.parsePacket(mgmtHeader);
 
         if (packet) {
+            if (packet instanceof nw.TCNetOptInPacket) {
+                if (mgmtHeader.nodeType == nw.NodeType.Master) {
+                    // MasterのブロードキャストOptInからも接続を検出する
+                    // (同一マシン上のBridgeはユニキャスト応答を返さない場合がある)
+                    this.server = rinfo;
+                    this.server.port = packet.nodeListenerPort;
+                    if (this.connectedHandler) {
+                        this.connected = true;
+                        this.connectedHandler();
+                        this.connectedHandler = null;
+                    }
+                }
+            }
+
             if (packet instanceof nw.TCNetOptOutPacket) {
                 if (mgmtHeader.nodeType == nw.NodeType.Master) {
-                    // We received an OptIn packet from a server
+                    // We received an OptOut packet from a server
                     this.log?.debug("Received optout from current Master");
                     if (this.server?.address == rinfo.address && this.server?.port == packet.nodeListenerPort) {
                         this.server = null;
