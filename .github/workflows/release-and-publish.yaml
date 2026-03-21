@@ -10,6 +10,7 @@ permissions: {}
 
 concurrency:
   group: release-${{ github.ref }}
+  cancel-in-progress: false # リリース中のキャンセルはpublish不整合を招くため禁止
 
 jobs:
   release-and-publish:
