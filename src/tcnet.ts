@@ -6,7 +6,10 @@ import { interfaceAddress } from "./utils";
 const TCNET_BROADCAST_PORT = 60000;
 const TCNET_TIMESTAMP_PORT = 60001;
 
-type STORED_RESOLVE = (value?: nw.TCNetDataPacket | PromiseLike<nw.TCNetDataPacket> | undefined) => void;
+type STORED_REQUEST = {
+    resolve: (value?: nw.TCNetDataPacket | PromiseLike<nw.TCNetDataPacket> | undefined) => void;
+    timeout: NodeJS.Timeout;
+};
 
 export type TCNetLogger = {
     error: (error: Error) => void;
@@ -15,7 +18,7 @@ export type TCNetLogger = {
 
 export class TCNetConfiguration {
     logger: TCNetLogger | null = null;
-    unicastPort = 65032;
+    unicastPort = 65023;
     applicationCode = 0xffff;
     nodeId = Math.floor(Math.random() * 0xffff);
     nodeName = "TCNET.JS";
@@ -27,15 +30,7 @@ export class TCNetConfiguration {
     requestTimeout = 2000;
 }
 
-const promisifyBasicFunction =
-    <V, A extends unknown[]>(fn: (...args: A) => V) =>
-    (...args: A): Promise<V> => {
-        try {
-            return Promise.resolve(fn(...args));
-        } catch (err) {
-            return Promise.reject(err);
-        }
-    };
+const closeSocket = (socket: Socket): Promise<void> => new Promise((resolve) => socket.close(() => resolve()));
 
 /**
  * Low level implementation of the TCNet protocol
@@ -50,7 +45,7 @@ export class TCNetClient extends EventEmitter {
     private uptime = 0;
     private connected = false;
     private connectedHandler: (() => void) | null = null;
-    private requests: Map<string, STORED_RESOLVE> = new Map();
+    private requests: Map<string, STORED_REQUEST> = new Map();
     private announcementInterval: NodeJS.Timeout;
 
     /**
@@ -98,7 +93,7 @@ export class TCNetClient extends EventEmitter {
         this.broadcastSocket.setBroadcast(true);
 
         this.timestampSocket = createSocket({ type: "udp4", reuseAddr: true }, this.receiveTimestamp.bind(this));
-        await this.bindSocket(this.timestampSocket, TCNET_TIMESTAMP_PORT, this.config.broadcastAddress);
+        await this.bindSocket(this.timestampSocket, TCNET_TIMESTAMP_PORT, this.config.brodcastListeningAddress);
         this.timestampSocket.setBroadcast(true);
 
         this.unicastSocket = createSocket({ type: "udp4", reuseAddr: false }, this.receiveUnicast.bind(this));
@@ -118,8 +113,9 @@ export class TCNetClient extends EventEmitter {
         this.removeAllListeners();
         this.connected = false;
         return Promise.all([
-            promisifyBasicFunction(() => this.broadcastSocket.close()),
-            promisifyBasicFunction(() => this.unicastSocket.close()),
+            closeSocket(this.broadcastSocket),
+            closeSocket(this.unicastSocket),
+            closeSocket(this.timestampSocket),
         ])
             .catch((err) => {
                 const error = new Error("Error disconnecting from TCNet");
@@ -189,9 +185,28 @@ export class TCNetClient extends EventEmitter {
         const packet: nw.TCNetPacket | null = this.parsePacket(mgmtHeader);
 
         if (packet) {
+            if (packet instanceof nw.TCNetOptInPacket) {
+                if (mgmtHeader.nodeType == nw.NodeType.Master) {
+                    // MasterのブロードキャストOptInからも接続を検出する
+                    // (同一マシン上のBridgeはユニキャスト応答を返さない場合がある)
+                    this.server = rinfo;
+                    this.server.port = packet.nodeListenerPort;
+                    if (this.connectedHandler) {
+                        this.connected = true;
+                        // 即座にOptInを送信してMasterに登録する
+                        this.announceApp().catch((err) => {
+                            const error = err instanceof Error ? err : new Error(String(err));
+                            this.log?.debug(`Failed to announce on connect: ${error.message}`);
+                        });
+                        this.connectedHandler();
+                        this.connectedHandler = null;
+                    }
+                }
+            }
+
             if (packet instanceof nw.TCNetOptOutPacket) {
                 if (mgmtHeader.nodeType == nw.NodeType.Master) {
-                    // We received an OptIn packet from a server
+                    // We received an OptOut packet from a server
                     this.log?.debug("Received optout from current Master");
                     if (this.server?.address == rinfo.address && this.server?.port == packet.nodeListenerPort) {
                         this.server = null;
@@ -231,9 +246,12 @@ export class TCNetClient extends EventEmitter {
                     this.emit("data", dataPacket);
                 }
 
-                const pendingRequest = this.requests.get(`${dataPacket.dataType}-${dataPacket.layer}`);
+                const key = `${dataPacket.dataType}-${dataPacket.layer}`;
+                const pendingRequest = this.requests.get(key);
                 if (pendingRequest) {
-                    pendingRequest(dataPacket);
+                    this.requests.delete(key);
+                    clearTimeout(pendingRequest.timeout);
+                    pendingRequest.resolve(dataPacket);
                 }
             }
         } else if (packet instanceof nw.TCNetOptInPacket) {
@@ -323,7 +341,7 @@ export class TCNetClient extends EventEmitter {
             throw new Error("Server not yet discovered");
         }
 
-        await this.sendPacket(packet, this.unicastSocket, this.server.port, this.server.address);
+        await this.sendPacket(packet, this.broadcastSocket, this.server.port, this.server.address);
     }
 
     /**
@@ -369,21 +387,29 @@ export class TCNetClient extends EventEmitter {
      */
     public requestData(dataType: number, layer: number): Promise<nw.TCNetDataPacket> {
         return new Promise((resolve, reject) => {
+            if (!Number.isInteger(layer) || layer < 0 || layer > 7) {
+                reject(new RangeError("layer must be an integer between 0 and 7"));
+                return;
+            }
+
             const request = new nw.TCNetRequestPacket();
             request.dataType = dataType;
-            request.layer = layer;
+            request.layer = layer + 1; // APIは0-based、仕様は1-based
 
-            this.requests.set(`${dataType}-${layer}`, resolve);
-
-            setTimeout(() => {
-                if (this.requests.delete(`${dataType}-${layer}`)) {
+            const key = `${dataType}-${layer}`;
+            const timeout = setTimeout(() => {
+                if (this.requests.delete(key)) {
                     reject(new Error("Timeout while requesting data"));
                 }
             }, this.config.requestTimeout);
 
+            this.requests.set(key, { resolve, timeout });
+
             this.sendServer(request).catch((err) => {
-                this.requests.delete(`${dataType}-${layer}`);
-                reject(err);
+                if (this.requests.delete(key)) {
+                    clearTimeout(timeout);
+                    reject(err);
+                }
             });
         });
     }
