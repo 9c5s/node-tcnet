@@ -197,6 +197,8 @@ export class TCNetClient extends EventEmitter {
                     this.server.port = packet.nodeListenerPort;
                     if (this.connectedHandler) {
                         this.connected = true;
+                        // 即座にOptInを送信してMasterに登録する
+                        this.announceApp().catch(() => {});
                         this.connectedHandler();
                         this.connectedHandler = null;
                     }
@@ -337,7 +339,7 @@ export class TCNetClient extends EventEmitter {
             throw new Error("Server not yet discovered");
         }
 
-        await this.sendPacket(packet, this.unicastSocket, this.server.port, this.server.address);
+        await this.sendPacket(packet, this.broadcastSocket, this.server.port, this.server.address);
     }
 
     /**
@@ -385,7 +387,7 @@ export class TCNetClient extends EventEmitter {
         return new Promise((resolve, reject) => {
             const request = new nw.TCNetRequestPacket();
             request.dataType = dataType;
-            request.layer = layer;
+            request.layer = layer + 1; // APIは0-based、仕様は1-based
 
             this.requests.set(`${dataType}-${layer}`, resolve);
 
