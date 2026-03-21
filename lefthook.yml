@@ -29,7 +29,7 @@ pre-commit:
       stage_fixed: true
 
     - name: format
-      glob: "**/*.{ts,json,html,css}"
+      glob: "**/*.{ts,json,jsonc,html,css}"
       run: npx prettier --write {staged_files}
       stage_fixed: true
 
