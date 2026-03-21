@@ -1,0 +1,10 @@
+{
+  "rules": {
+    "preset-ja-technical-writing": {
+      "sentence-length": false,
+      "max-comma": false,
+      "no-exclamation-question-mark": false
+    },
+    "no-mixed-zenkaku-and-hankaku-alphabet": true
+  }
+}

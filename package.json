@@ -29,7 +29,9 @@
         "format:check": "prettier --check \"./**/*.{ts,html,css,json}\"",
         "format-pre-commit": "pretty-quick --staged --pattern '*/**/*.{ts,html,css,json}'",
         "mdlint": "markdownlint-cli2 \"docs/wiki/**/*.md\" \"*.{md,MD}\" \"!CHANGELOG.md\"",
-        "mdlint:fix": "markdownlint-cli2 --fix \"docs/wiki/**/*.md\" \"*.{md,MD}\" \"!CHANGELOG.md\""
+        "mdlint:fix": "markdownlint-cli2 --fix \"docs/wiki/**/*.md\" \"*.{md,MD}\" \"!CHANGELOG.md\"",
+        "textlint": "textlint \"docs/wiki/**/*.md\"",
+        "textlint:fix": "textlint --fix \"docs/wiki/**/*.md\""
     },
     "devDependencies": {
         "@changesets/cli": "^2.27.9",
