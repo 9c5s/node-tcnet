@@ -1,4 +1,5 @@
 import { assert } from "./utils";
+import type { CueData, CuePoint, WaveformBar, WaveformData, MixerChannel, MixerData } from "./types";
 
 export enum TCNetMessageType {
     OptIn = 2,
@@ -414,6 +415,125 @@ export class TCNetDataPacketMetadata extends TCNetDataPacket {
     }
 }
 
+export class TCNetDataPacketCUE extends TCNetDataPacket {
+    data: CueData | null = null;
+
+    read(): void {
+        const loopInTime = this.buffer.readUInt32LE(42);
+        const loopOutTime = this.buffer.readUInt32LE(46);
+        const cues: CuePoint[] = [];
+        // 仕様書にはCUE 1開始を byte 47 と記載しているが、
+        // Loop OUT Time (byte 46-49) と重複するため仕様書の誤記。
+        // 実機検証に基づき byte 50 を採用。
+        const cueStart = 50;
+        for (let i = 0; i < 18; i++) {
+            const offset = cueStart + i * 22;
+            if (offset + 22 > this.buffer.length) break;
+            const type = this.buffer.readUInt8(offset);
+            if (type === 0) continue;
+            cues.push({
+                index: i + 1,
+                type,
+                inTime: this.buffer.readUInt32LE(offset + 2),
+                outTime: this.buffer.readUInt32LE(offset + 6),
+                color: {
+                    r: this.buffer.readUInt8(offset + 11),
+                    g: this.buffer.readUInt8(offset + 12),
+                    b: this.buffer.readUInt8(offset + 13),
+                },
+            });
+        }
+        this.data = { loopInTime, loopOutTime, cues };
+    }
+
+    write(): void {
+        throw new Error("not supported!");
+    }
+    length(): number {
+        return 436;
+    }
+}
+
+export class TCNetDataPacketSmallWaveForm extends TCNetDataPacket {
+    data: WaveformData | null = null;
+
+    read(): void {
+        const bars: WaveformBar[] = [];
+        const dataStart = 42;
+        for (let i = 0; i < 2400; i += 2) {
+            bars.push({
+                level: this.buffer.readUInt8(dataStart + i),
+                color: this.buffer.readUInt8(dataStart + i + 1),
+            });
+        }
+        this.data = { bars };
+    }
+
+    write(): void {
+        throw new Error("not supported!");
+    }
+    length(): number {
+        return 2442;
+    }
+}
+
+export class TCNetDataPacketMixer extends TCNetDataPacket {
+    data: MixerData | null = null;
+
+    read(): void {
+        const parseChannel = (offset: number): MixerChannel => ({
+            sourceSelect: this.buffer.readUInt8(offset),
+            audioLevel: this.buffer.readUInt8(offset + 1),
+            faderLevel: this.buffer.readUInt8(offset + 2),
+            trimLevel: this.buffer.readUInt8(offset + 3),
+            compLevel: this.buffer.readUInt8(offset + 4),
+            eqHi: this.buffer.readUInt8(offset + 5),
+            eqHiMid: this.buffer.readUInt8(offset + 6),
+            eqLowMid: this.buffer.readUInt8(offset + 7),
+            eqLow: this.buffer.readUInt8(offset + 8),
+            filterColor: this.buffer.readUInt8(offset + 9),
+            send: this.buffer.readUInt8(offset + 10),
+            cueA: this.buffer.readUInt8(offset + 11),
+            cueB: this.buffer.readUInt8(offset + 12),
+            crossfaderAssign: this.buffer.readUInt8(offset + 13),
+        });
+
+        this.data = {
+            mixerId: this.buffer.readUInt8(25),
+            mixerType: this.buffer.readUInt8(26),
+            mixerName: this.buffer.slice(29, 45).toString("ascii").replace(/\0.*$/g, ""),
+            masterAudioLevel: this.buffer.readUInt8(61),
+            masterFaderLevel: this.buffer.readUInt8(62),
+            masterFilter: this.buffer.readUInt8(69),
+            masterIsolatorOn: this.buffer.readUInt8(74) === 1,
+            masterIsolatorHi: this.buffer.readUInt8(75),
+            masterIsolatorMid: this.buffer.readUInt8(76),
+            masterIsolatorLow: this.buffer.readUInt8(77),
+            filterHpf: this.buffer.readUInt8(79),
+            filterLpf: this.buffer.readUInt8(80),
+            filterResonance: this.buffer.readUInt8(81),
+            crossFader: this.buffer.readUInt8(99),
+            crossFaderCurve: this.buffer.readUInt8(98),
+            channelFaderCurve: this.buffer.readUInt8(97),
+            beatFxOn: this.buffer.readUInt8(100) === 1,
+            beatFxSelect: this.buffer.readUInt8(103),
+            beatFxLevelDepth: this.buffer.readUInt8(101),
+            beatFxChannelSelect: this.buffer.readUInt8(102),
+            headphonesALevel: this.buffer.readUInt8(108),
+            headphonesBLevel: this.buffer.readUInt8(110),
+            boothLevel: this.buffer.readUInt8(112),
+            channels: [125, 149, 173, 197, 221, 245].map(parseChannel),
+        };
+    }
+
+    write(): void {
+        throw new Error("not supported!");
+    }
+    length(): number {
+        return 270;
+    }
+}
+
 export interface Constructable<T> {
     new (...args: unknown[]): T;
 }
@@ -438,8 +558,8 @@ export const TCNetDataPackets: Record<TCNetDataPacketType, typeof TCNetDataPacke
     [TCNetDataPacketType.MetricsData]: TCNetDataPacketMetrics,
     [TCNetDataPacketType.MetaData]: TCNetDataPacketMetadata,
     [TCNetDataPacketType.BeatGridData]: null, // not yet implemented
-    [TCNetDataPacketType.CUEData]: null, // not yet implemented
-    [TCNetDataPacketType.SmallWaveFormData]: null, // not yet implemented
+    [TCNetDataPacketType.CUEData]: TCNetDataPacketCUE,
+    [TCNetDataPacketType.SmallWaveFormData]: TCNetDataPacketSmallWaveForm,
     [TCNetDataPacketType.BigWaveFormData]: null, // not yet implemented
-    [TCNetDataPacketType.MixerData]: null, // not yet implemented
+    [TCNetDataPacketType.MixerData]: TCNetDataPacketMixer,
 };
