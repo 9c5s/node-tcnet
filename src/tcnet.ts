@@ -255,11 +255,8 @@ export class TCNetClient extends EventEmitter {
                     // マルチパケット: アセンブラに蓄積
                     const complete = pendingRequest.assembler.add(msg);
 
-                    if (this.connected) {
-                        this.emit("data", dataPacket);
-                    }
-
                     if (complete) {
+                        // T8: アセンブル完了時のみ emit する (未完パケットは emit しない)
                         const assembled = pendingRequest.assembler.assemble();
                         const finalPacket = new dataPacketClass();
                         finalPacket.buffer = msg;
@@ -271,9 +268,12 @@ export class TCNetClient extends EventEmitter {
                         }
                         this.requests.delete(key);
                         clearTimeout(pendingRequest.timeout);
+                        if (this.connected) {
+                            this.emit("data", finalPacket);
+                        }
                         pendingRequest.resolve(finalPacket);
                     } else {
-                        // パケット到着ごとにタイムアウトをリセット
+                        // パケット到着ごとにタイムアウトをリセット (emit しない)
                         clearTimeout(pendingRequest.timeout);
                         pendingRequest.timeout = setTimeout(() => {
                             if (this.requests.delete(key)) {

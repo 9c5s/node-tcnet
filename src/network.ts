@@ -463,19 +463,32 @@ export class TCNetDataPacketCUE extends TCNetDataPacket {
     }
 }
 
+/**
+ * 波形バーを共通パースするファイル内ヘルパー関数。
+ * dataStart から source の末尾 (または dataStart + maxBytes の手前) まで
+ * 2バイト単位で WaveformBar を生成して返す。
+ * 奇数バイト境界への読み出しを防ぐため safeEnd は偶数バイトに切り捨てる。
+ */
+function parseWaveformBars(source: Buffer, dataStart: number, maxBytes?: number): WaveformBar[] {
+    const bars: WaveformBar[] = [];
+    const end = maxBytes !== undefined ? Math.min(dataStart + maxBytes, source.length) : source.length;
+    // 偶数バイト境界に切り捨て: i + 1 が範囲外にならないよう保証する
+    const safeEnd = dataStart + ((end - dataStart) & ~1);
+    for (let i = dataStart; i < safeEnd; i += 2) {
+        bars.push({
+            level: source.readUInt8(i),
+            color: source.readUInt8(i + 1),
+        });
+    }
+    return bars;
+}
+
 export class TCNetDataPacketSmallWaveForm extends TCNetDataPacket {
     data: WaveformData | null = null;
 
     read(): void {
-        const bars: WaveformBar[] = [];
-        const dataStart = 42;
-        for (let i = 0; i < 2400; i += 2) {
-            bars.push({
-                level: this.buffer.readUInt8(dataStart + i),
-                color: this.buffer.readUInt8(dataStart + i + 1),
-            });
-        }
-        this.data = { bars };
+        // T5: バッファが 2400 バイトに満たない場合でもクラッシュしない
+        this.data = { bars: parseWaveformBars(this.buffer, 42, 2400) };
     }
 
     write(): void {
@@ -490,6 +503,11 @@ export class TCNetDataPacketMixer extends TCNetDataPacket {
     data: MixerData | null = null;
 
     read(): void {
+        // T6: 最大オフセット (channels[5] の crossfaderAssign = 245 + 13 = 258) を確認する
+        if (this.buffer.length < 259) {
+            return;
+        }
+
         const parseChannel = (offset: number): MixerChannel => ({
             sourceSelect: this.buffer.readUInt8(offset),
             audioLevel: this.buffer.readUInt8(offset + 1),
@@ -581,23 +599,13 @@ export class TCNetDataPacketBigWaveForm extends TCNetDataPacket {
     data: WaveformData | null = null;
 
     read(): void {
-        this.parseWaveformBars(this.buffer, 42);
+        // T7: parseWaveformBars ヘルパーを使用して重複を排除する
+        this.data = { bars: parseWaveformBars(this.buffer, 42) };
     }
 
     // アセンブル済みバッファからのパース用
     readAssembled(assembled: Buffer): void {
-        this.parseWaveformBars(assembled, 0);
-    }
-
-    private parseWaveformBars(source: Buffer, dataStart: number): void {
-        const bars: WaveformBar[] = [];
-        for (let i = dataStart; i + 1 < source.length; i += 2) {
-            bars.push({
-                level: source.readUInt8(i),
-                color: source.readUInt8(i + 1),
-            });
-        }
-        this.data = { bars };
+        this.data = { bars: parseWaveformBars(assembled, 0) };
     }
 
     write(): void {
