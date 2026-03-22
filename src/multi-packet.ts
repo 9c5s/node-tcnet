@@ -8,6 +8,7 @@ export class MultiPacketAssembler {
         // T1: バッファが最小ヘッダサイズ未満なら不正パケットとして無視する
         if (buffer.length < 42) return false;
         const newTotalPackets = buffer.readUInt32LE(30);
+        if (newTotalPackets === 0) return false;
         // T4: totalPackets が途中で変わった場合は不整合パケットとして無視する
         if (this.totalPackets > 0 && newTotalPackets !== this.totalPackets) return false;
         this.totalPackets = newTotalPackets;

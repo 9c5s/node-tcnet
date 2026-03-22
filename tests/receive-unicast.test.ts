@@ -43,6 +43,7 @@ describe("receiveUnicast マルチパケット対応", () => {
         expect(handler).toHaveBeenCalledTimes(1);
         const packet = handler.mock.calls[0][0];
         expect(packet).toBeInstanceOf(nw.TCNetDataPacketCUE);
+        expect(packet.data).not.toBeNull();
         expect(packet.data.loopInTime).toBe(1000);
     });
 

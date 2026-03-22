@@ -100,4 +100,8 @@ describe("TCNetDataPacketBigWaveForm", () => {
     it("length() は -1 を返す (可変長)", () => {
         expect(new TCNetDataPacketBigWaveForm().length()).toBe(-1);
     });
+
+    it("write() はエラーを投げる", () => {
+        expect(() => new TCNetDataPacketBigWaveForm().write()).toThrow("not supported!");
+    });
 });
