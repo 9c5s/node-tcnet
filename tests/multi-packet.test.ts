@@ -58,4 +58,23 @@ describe("MultiPacketAssembler", () => {
         expect(assembler.add(buf)).toBe(true);
         expect(assembler.assemble().readUInt8(0)).toBe(99);
     });
+
+    it("42バイト未満のバッファを無視する", () => {
+        const assembler = new MultiPacketAssembler();
+        const shortBuf = Buffer.alloc(30);
+        expect(assembler.add(shortBuf)).toBe(false);
+    });
+
+    it("totalPackets が変わったパケットを無視する", () => {
+        const assembler = new MultiPacketAssembler();
+        const buf1 = createMultiPacketBuffer(3, 0, 4, [10, 11, 12, 13]);
+        const badBuf = createMultiPacketBuffer(5, 1, 4, [20, 21, 22, 23]); // totalPackets不一致
+        const buf2 = createMultiPacketBuffer(3, 1, 4, [30, 31, 32, 33]);
+        const buf3 = createMultiPacketBuffer(3, 2, 4, [40, 41, 42, 43]);
+
+        expect(assembler.add(buf1)).toBe(false);
+        expect(assembler.add(badBuf)).toBe(false); // 無視される
+        expect(assembler.add(buf2)).toBe(false);
+        expect(assembler.add(buf3)).toBe(true); // 3パケット揃った
+    });
 });

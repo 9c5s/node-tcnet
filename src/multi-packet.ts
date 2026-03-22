@@ -5,12 +5,18 @@ export class MultiPacketAssembler {
 
     // パケットを追加し、全パケットが揃ったら true を返す
     add(buffer: Buffer): boolean {
-        this.totalPackets = buffer.readUInt32LE(30);
+        // T1: バッファが最小ヘッダサイズ未満なら不正パケットとして無視する
+        if (buffer.length < 42) return false;
+        const newTotalPackets = buffer.readUInt32LE(30);
+        // T4: totalPackets が途中で変わった場合は不整合パケットとして無視する
+        if (this.totalPackets > 0 && newTotalPackets !== this.totalPackets) return false;
+        this.totalPackets = newTotalPackets;
         const packetNo = buffer.readUInt32LE(34);
         const clusterSize = buffer.readUInt32LE(38);
         const dataStart = 42;
         const dataEnd = Math.min(dataStart + clusterSize, buffer.length);
-        this.packets.set(packetNo, buffer.slice(dataStart, dataEnd));
+        // T3: Buffer.from() でコピーを保持し、元バッファへの参照共有を防ぐ
+        this.packets.set(packetNo, Buffer.from(buffer.slice(dataStart, dataEnd)));
         return this.packets.size >= this.totalPackets;
     }
 

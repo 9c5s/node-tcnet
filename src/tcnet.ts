@@ -277,6 +277,8 @@ export class TCNetClient extends EventEmitter {
                         clearTimeout(pendingRequest.timeout);
                         pendingRequest.timeout = setTimeout(() => {
                             if (this.requests.delete(key)) {
+                                // T2: タイムアウト時にアセンブラのメモリをクリーンアップする
+                                pendingRequest.assembler?.reset();
                                 pendingRequest.reject(new Error("Timeout while requesting data"));
                             }
                         }, this.config.requestTimeout);
@@ -437,7 +439,10 @@ export class TCNetClient extends EventEmitter {
 
             const key = `${dataType}-${layer}`;
             const timeout = setTimeout(() => {
-                if (this.requests.delete(key)) {
+                // T2: delete前にreqを取得し、アセンブラのメモリをクリーンアップする
+                const req = this.requests.get(key);
+                if (req && this.requests.delete(key)) {
+                    req.assembler?.reset();
                     reject(new Error("Timeout while requesting data"));
                 }
             }, this.config.requestTimeout);
