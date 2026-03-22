@@ -1,6 +1,7 @@
 import { Socket, createSocket, RemoteInfo } from "dgram";
 import EventEmitter = require("events");
 import * as nw from "./network";
+import { MultiPacketAssembler } from "./multi-packet";
 import { interfaceAddress } from "./utils";
 
 const TCNET_BROADCAST_PORT = 60000;
@@ -8,8 +9,12 @@ const TCNET_TIMESTAMP_PORT = 60001;
 
 type STORED_REQUEST = {
     resolve: (value?: nw.TCNetDataPacket | PromiseLike<nw.TCNetDataPacket> | undefined) => void;
+    reject: (reason?: unknown) => void;
     timeout: NodeJS.Timeout;
+    assembler?: MultiPacketAssembler;
 };
+
+const MULTI_PACKET_TYPES = new Set([nw.TCNetDataPacketType.BigWaveFormData, nw.TCNetDataPacketType.BeatGridData]);
 
 export type TCNetLogger = {
     error: (error: Error) => void;
@@ -242,16 +247,50 @@ export class TCNetClient extends EventEmitter {
                 dataPacket.dataType = packet.dataType;
                 dataPacket.layer = packet.layer;
                 dataPacket.read();
-                if (this.connected) {
-                    this.emit("data", dataPacket);
-                }
 
                 const key = `${dataPacket.dataType}-${dataPacket.layer}`;
                 const pendingRequest = this.requests.get(key);
-                if (pendingRequest) {
-                    this.requests.delete(key);
-                    clearTimeout(pendingRequest.timeout);
-                    pendingRequest.resolve(dataPacket);
+
+                if (pendingRequest && pendingRequest.assembler) {
+                    // マルチパケット: アセンブラに蓄積
+                    const complete = pendingRequest.assembler.add(msg);
+
+                    if (this.connected) {
+                        this.emit("data", dataPacket);
+                    }
+
+                    if (complete) {
+                        const assembled = pendingRequest.assembler.assemble();
+                        const finalPacket = new dataPacketClass();
+                        finalPacket.buffer = msg;
+                        finalPacket.header = mgmtHeader;
+                        finalPacket.dataType = dataPacket.dataType;
+                        finalPacket.layer = dataPacket.layer;
+                        if ("readAssembled" in finalPacket && typeof finalPacket.readAssembled === "function") {
+                            finalPacket.readAssembled(assembled);
+                        }
+                        this.requests.delete(key);
+                        clearTimeout(pendingRequest.timeout);
+                        pendingRequest.resolve(finalPacket);
+                    } else {
+                        // パケット到着ごとにタイムアウトをリセット
+                        clearTimeout(pendingRequest.timeout);
+                        pendingRequest.timeout = setTimeout(() => {
+                            if (this.requests.delete(key)) {
+                                pendingRequest.reject(new Error("Timeout while requesting data"));
+                            }
+                        }, this.config.requestTimeout);
+                    }
+                } else {
+                    // 単一パケット: 従来通り
+                    if (this.connected) {
+                        this.emit("data", dataPacket);
+                    }
+                    if (pendingRequest) {
+                        this.requests.delete(key);
+                        clearTimeout(pendingRequest.timeout);
+                        pendingRequest.resolve(dataPacket);
+                    }
                 }
             }
         } else if (packet instanceof nw.TCNetOptInPacket) {
@@ -403,7 +442,12 @@ export class TCNetClient extends EventEmitter {
                 }
             }, this.config.requestTimeout);
 
-            this.requests.set(key, { resolve, timeout });
+            this.requests.set(key, {
+                resolve,
+                reject,
+                timeout,
+                assembler: MULTI_PACKET_TYPES.has(dataType) ? new MultiPacketAssembler() : undefined,
+            });
 
             this.sendServer(request).catch((err) => {
                 if (this.requests.delete(key)) {
