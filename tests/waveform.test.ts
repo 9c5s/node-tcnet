@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { TCNetDataPacketSmallWaveForm, TCNetManagementHeader } from "../src/network";
+import { TCNetDataPacketSmallWaveForm, TCNetDataPacketBigWaveForm, TCNetManagementHeader } from "../src/network";
 
 function createHeader(buffer: Buffer): TCNetManagementHeader {
     const header = new TCNetManagementHeader(buffer);
@@ -38,5 +38,46 @@ describe("TCNetDataPacketSmallWaveForm", () => {
 
     it("write() はエラーを投げる", () => {
         expect(() => new TCNetDataPacketSmallWaveForm().write()).toThrow("not supported!");
+    });
+});
+
+describe("TCNetDataPacketBigWaveForm", () => {
+    it("アセンブル済みバッファから波形バーをパースする", () => {
+        const data = Buffer.alloc(10);
+        data.writeUInt8(200, 0);
+        data.writeUInt8(150, 1);
+        data.writeUInt8(100, 2);
+        data.writeUInt8(50, 3);
+
+        const packet = new TCNetDataPacketBigWaveForm();
+        packet.readAssembled(data);
+
+        expect(packet.data).not.toBeNull();
+        expect(packet.data!.bars).toHaveLength(5);
+        expect(packet.data!.bars[0]).toEqual({ level: 200, color: 150 });
+        expect(packet.data!.bars[1]).toEqual({ level: 100, color: 50 });
+    });
+
+    it("通常の read() は個別パケットの波形データをパースする", () => {
+        const buffer = Buffer.alloc(4842);
+        buffer.writeUInt8(3, 2);
+        buffer.write("TCN", 4, "ascii");
+        buffer.writeUInt8(200, 7);
+        buffer.writeUInt8(32, 24);
+        buffer.writeUInt8(1, 25);
+        buffer.writeUInt8(128, 42);
+        buffer.writeUInt8(64, 43);
+
+        const packet = new TCNetDataPacketBigWaveForm();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+
+        expect(packet.data).not.toBeNull();
+        expect(packet.data!.bars[0]).toEqual({ level: 128, color: 64 });
+    });
+
+    it("length() は -1 を返す (可変長)", () => {
+        expect(new TCNetDataPacketBigWaveForm().length()).toBe(-1);
     });
 });

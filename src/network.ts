@@ -577,6 +577,37 @@ export class TCNetDataPacketBeatGrid extends TCNetDataPacket {
     }
 }
 
+export class TCNetDataPacketBigWaveForm extends TCNetDataPacket {
+    data: WaveformData | null = null;
+
+    read(): void {
+        this.parseWaveformBars(this.buffer, 42);
+    }
+
+    // アセンブル済みバッファからのパース用
+    readAssembled(assembled: Buffer): void {
+        this.parseWaveformBars(assembled, 0);
+    }
+
+    private parseWaveformBars(source: Buffer, dataStart: number): void {
+        const bars: WaveformBar[] = [];
+        for (let i = dataStart; i + 1 < source.length; i += 2) {
+            bars.push({
+                level: source.readUInt8(i),
+                color: source.readUInt8(i + 1),
+            });
+        }
+        this.data = { bars };
+    }
+
+    write(): void {
+        throw new Error("not supported!");
+    }
+    length(): number {
+        return -1;
+    }
+}
+
 export interface Constructable<T> {
     new (...args: unknown[]): T;
 }
@@ -603,6 +634,6 @@ export const TCNetDataPackets: Record<TCNetDataPacketType, typeof TCNetDataPacke
     [TCNetDataPacketType.BeatGridData]: TCNetDataPacketBeatGrid,
     [TCNetDataPacketType.CUEData]: TCNetDataPacketCUE,
     [TCNetDataPacketType.SmallWaveFormData]: TCNetDataPacketSmallWaveForm,
-    [TCNetDataPacketType.BigWaveFormData]: null, // not yet implemented
+    [TCNetDataPacketType.BigWaveFormData]: TCNetDataPacketBigWaveForm,
     [TCNetDataPacketType.MixerData]: TCNetDataPacketMixer,
 };
