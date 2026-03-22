@@ -20,7 +20,7 @@ function validateChangeset(filePath: string): boolean {
     try {
         content = readFileSync(filePath, "utf-8");
     } catch (err) {
-        process.stderr.write(`ERROR [${filePath}]: ファイルを読み込めなかった: ${err}\n`);
+        process.stderr.write(`ERROR [${filePath}]: ファイルを読み込めませんでした: ${err}\n`);
         return false;
     }
 
@@ -28,25 +28,25 @@ function validateChangeset(filePath: string): boolean {
     try {
         parsed = parse(content);
     } catch (err) {
-        process.stderr.write(`ERROR [${filePath}]: frontmatter のパースに失敗した: ${err}\n`);
+        process.stderr.write(`ERROR [${filePath}]: frontmatter のパースに失敗しました: ${err}\n`);
         return false;
     }
 
-    // パッケージ名の検証
-    const release = parsed.releases.find((r) => r.name === PACKAGE_NAME);
-    if (release === undefined) {
+    // パッケージ名の検証 (対象パッケージのみ1件であること)
+    if (parsed.releases.length !== 1 || parsed.releases[0].name !== PACKAGE_NAME) {
         process.stderr.write(
-            `ERROR [${filePath}]: パッケージ名 "${PACKAGE_NAME}" が見つからなかった\n` +
+            `ERROR [${filePath}]: releases は "${PACKAGE_NAME}" のみ1件である必要があります\n` +
                 `  releases: ${JSON.stringify(parsed.releases)}\n`,
         );
         return false;
     }
+    const release = parsed.releases[0];
 
     // バージョン種別の検証 (none は不許可)
     const validTypes: ReadonlyArray<string> = VALID_TYPES;
     if (!validTypes.includes(release.type)) {
         process.stderr.write(
-            `ERROR [${filePath}]: バージョン種別 "${release.type}" は不正である\n` +
+            `ERROR [${filePath}]: バージョン種別 "${release.type}" は不正です\n` +
                 `  許可されている種別: ${VALID_TYPES.join(", ")}\n`,
         );
         return false;
@@ -54,13 +54,13 @@ function validateChangeset(filePath: string): boolean {
 
     // 説明文の検証 (空白・改行のみは不許可)
     if (parsed.summary.trim() === "") {
-        process.stderr.write(`ERROR [${filePath}]: 説明文が空白・改行のみである\n`);
+        process.stderr.write(`ERROR [${filePath}]: 説明文が空白・改行のみです\n`);
         return false;
     }
 
     // major の場合は警告を出力するが、コミットはブロックしない
     if (release.type === "major") {
-        process.stderr.write(`WARNING [${filePath}]: major バージョンアップが指定されている\n`);
+        process.stderr.write(`WARNING [${filePath}]: major バージョンアップが指定されています\n`);
     }
 
     return true;
