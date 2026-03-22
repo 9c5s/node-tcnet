@@ -1,5 +1,14 @@
 import { assert } from "./utils";
-import type { CueData, CuePoint, WaveformBar, WaveformData, MixerChannel, MixerData } from "./types";
+import type {
+    CueData,
+    CuePoint,
+    WaveformBar,
+    WaveformData,
+    BeatGridEntry,
+    BeatGridData,
+    MixerChannel,
+    MixerData,
+} from "./types";
 
 export enum TCNetMessageType {
     OptIn = 2,
@@ -534,6 +543,40 @@ export class TCNetDataPacketMixer extends TCNetDataPacket {
     }
 }
 
+export class TCNetDataPacketBeatGrid extends TCNetDataPacket {
+    data: BeatGridData | null = null;
+
+    read(): void {
+        this.readFromOffset(42);
+    }
+
+    // アセンブル済みバッファからのパース用
+    readAssembled(assembled: Buffer): void {
+        this.readFromOffset(0, assembled);
+    }
+
+    private readFromOffset(dataStart: number, buf?: Buffer): void {
+        const source = buf ?? this.buffer;
+        const entries: BeatGridEntry[] = [];
+        for (let offset = dataStart; offset + 8 <= source.length; offset += 8) {
+            const beatNumber = source.readUInt16LE(offset);
+            const beatType = source.readUInt8(offset + 2);
+            const timestampMs = source.readUInt32LE(offset + 4);
+            // 仕様書に明示的な記載はないが、実機観察に基づきゼロエントリをスキップする
+            if (beatNumber === 0 && timestampMs === 0) continue;
+            entries.push({ beatNumber, beatType, timestampMs });
+        }
+        this.data = { entries };
+    }
+
+    write(): void {
+        throw new Error("not supported!");
+    }
+    length(): number {
+        return 2442;
+    }
+}
+
 export interface Constructable<T> {
     new (...args: unknown[]): T;
 }
@@ -557,7 +600,7 @@ export const TCNetPackets: Record<TCNetMessageType, Constructable<TCNetPacket> |
 export const TCNetDataPackets: Record<TCNetDataPacketType, typeof TCNetDataPacket | null> = {
     [TCNetDataPacketType.MetricsData]: TCNetDataPacketMetrics,
     [TCNetDataPacketType.MetaData]: TCNetDataPacketMetadata,
-    [TCNetDataPacketType.BeatGridData]: null, // not yet implemented
+    [TCNetDataPacketType.BeatGridData]: TCNetDataPacketBeatGrid,
     [TCNetDataPacketType.CUEData]: TCNetDataPacketCUE,
     [TCNetDataPacketType.SmallWaveFormData]: TCNetDataPacketSmallWaveForm,
     [TCNetDataPacketType.BigWaveFormData]: null, // not yet implemented
