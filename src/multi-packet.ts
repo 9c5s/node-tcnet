@@ -15,9 +15,9 @@ export class MultiPacketAssembler {
         const packetNo = buffer.readUInt32LE(34);
         const clusterSize = buffer.readUInt32LE(38);
         const dataStart = 42;
-        const dataEnd = Math.min(dataStart + clusterSize, buffer.length);
+        if (dataStart + clusterSize > buffer.length) return false;
         // T3: Buffer.from() でコピーを保持し、元バッファへの参照共有を防ぐ
-        this.packets.set(packetNo, Buffer.from(buffer.slice(dataStart, dataEnd)));
+        this.packets.set(packetNo, Buffer.from(buffer.slice(dataStart, dataStart + clusterSize)));
         return this.packets.size >= this.totalPackets;
     }
 

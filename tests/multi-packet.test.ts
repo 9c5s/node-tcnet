@@ -65,6 +65,15 @@ describe("MultiPacketAssembler", () => {
         expect(assembler.add(shortBuf)).toBe(false);
     });
 
+    it("clusterSize がバッファ実長を超えるパケットを拒否する", () => {
+        const assembler = new MultiPacketAssembler();
+        const buf = Buffer.alloc(50); // 42 + 8 = 50 バイト
+        buf.writeUInt32LE(1, 30); // totalPackets = 1
+        buf.writeUInt32LE(0, 34); // packetNo = 0
+        buf.writeUInt32LE(100, 38); // clusterSize = 100 (実データは8バイトしかない)
+        expect(assembler.add(buf)).toBe(false);
+    });
+
     it("totalPackets が変わったパケットを無視する", () => {
         const assembler = new MultiPacketAssembler();
         const buf1 = createMultiPacketBuffer(3, 0, 4, [10, 11, 12, 13]);
