@@ -1,4 +1,14 @@
 import { assert } from "./utils";
+import type {
+    CueData,
+    CuePoint,
+    WaveformBar,
+    WaveformData,
+    BeatGridEntry,
+    BeatGridData,
+    MixerChannel,
+    MixerData,
+} from "./types";
 
 export enum TCNetMessageType {
     OptIn = 2,
@@ -414,6 +424,198 @@ export class TCNetDataPacketMetadata extends TCNetDataPacket {
     }
 }
 
+export class TCNetDataPacketCUE extends TCNetDataPacket {
+    data: CueData | null = null;
+
+    read(): void {
+        const loopInTime = this.buffer.readUInt32LE(42);
+        const loopOutTime = this.buffer.readUInt32LE(46);
+        const cues: CuePoint[] = [];
+        // 仕様書にはCUE 1開始を byte 47 と記載しているが、
+        // Loop OUT Time (byte 46-49) と重複するため仕様書の誤記。
+        // 実機検証に基づき byte 50 を採用。
+        const cueStart = 50;
+        for (let i = 0; i < 18; i++) {
+            const offset = cueStart + i * 22;
+            if (offset + 22 > this.buffer.length) break;
+            const type = this.buffer.readUInt8(offset);
+            if (type === 0) continue;
+            cues.push({
+                index: i + 1,
+                type,
+                inTime: this.buffer.readUInt32LE(offset + 2),
+                outTime: this.buffer.readUInt32LE(offset + 6),
+                color: {
+                    r: this.buffer.readUInt8(offset + 11),
+                    g: this.buffer.readUInt8(offset + 12),
+                    b: this.buffer.readUInt8(offset + 13),
+                },
+            });
+        }
+        this.data = { loopInTime, loopOutTime, cues };
+    }
+
+    write(): void {
+        throw new Error("not supported!");
+    }
+    length(): number {
+        return 436;
+    }
+}
+
+/**
+ * 波形バーを共通パースするファイル内ヘルパー関数。
+ * dataStart から source の末尾 (または dataStart + maxBytes の手前) まで
+ * 2バイト単位で WaveformBar を生成して返す。
+ * 奇数バイト境界への読み出しを防ぐため safeEnd は偶数バイトに切り捨てる。
+ */
+function parseWaveformBars(source: Buffer, dataStart: number, maxBytes?: number): WaveformBar[] {
+    const bars: WaveformBar[] = [];
+    const end = maxBytes !== undefined ? Math.min(dataStart + maxBytes, source.length) : source.length;
+    // 偶数バイト境界に切り捨て: i + 1 が範囲外にならないよう保証する
+    const safeEnd = dataStart + ((end - dataStart) & ~1);
+    for (let i = dataStart; i < safeEnd; i += 2) {
+        bars.push({
+            level: source.readUInt8(i),
+            color: source.readUInt8(i + 1),
+        });
+    }
+    return bars;
+}
+
+export class TCNetDataPacketSmallWaveForm extends TCNetDataPacket {
+    data: WaveformData | null = null;
+
+    read(): void {
+        // T5: バッファが 2400 バイトに満たない場合でもクラッシュしない
+        this.data = { bars: parseWaveformBars(this.buffer, 42, 2400) };
+    }
+
+    write(): void {
+        throw new Error("not supported!");
+    }
+    length(): number {
+        return 2442;
+    }
+}
+
+export class TCNetDataPacketMixer extends TCNetDataPacket {
+    data: MixerData | null = null;
+
+    read(): void {
+        // T6: 最大オフセット (channels[5] の crossfaderAssign = 245 + 13 = 258) を確認する
+        if (this.buffer.length < 259) {
+            return;
+        }
+
+        const parseChannel = (offset: number): MixerChannel => ({
+            sourceSelect: this.buffer.readUInt8(offset),
+            audioLevel: this.buffer.readUInt8(offset + 1),
+            faderLevel: this.buffer.readUInt8(offset + 2),
+            trimLevel: this.buffer.readUInt8(offset + 3),
+            compLevel: this.buffer.readUInt8(offset + 4),
+            eqHi: this.buffer.readUInt8(offset + 5),
+            eqHiMid: this.buffer.readUInt8(offset + 6),
+            eqLowMid: this.buffer.readUInt8(offset + 7),
+            eqLow: this.buffer.readUInt8(offset + 8),
+            filterColor: this.buffer.readUInt8(offset + 9),
+            send: this.buffer.readUInt8(offset + 10),
+            cueA: this.buffer.readUInt8(offset + 11),
+            cueB: this.buffer.readUInt8(offset + 12),
+            crossfaderAssign: this.buffer.readUInt8(offset + 13),
+        });
+
+        this.data = {
+            mixerId: this.buffer.readUInt8(25),
+            mixerType: this.buffer.readUInt8(26),
+            mixerName: this.buffer.slice(29, 45).toString("ascii").replace(/\0.*$/g, ""),
+            masterAudioLevel: this.buffer.readUInt8(61),
+            masterFaderLevel: this.buffer.readUInt8(62),
+            masterFilter: this.buffer.readUInt8(69),
+            masterIsolatorOn: this.buffer.readUInt8(74) === 1,
+            masterIsolatorHi: this.buffer.readUInt8(75),
+            masterIsolatorMid: this.buffer.readUInt8(76),
+            masterIsolatorLow: this.buffer.readUInt8(77),
+            filterHpf: this.buffer.readUInt8(79),
+            filterLpf: this.buffer.readUInt8(80),
+            filterResonance: this.buffer.readUInt8(81),
+            crossFader: this.buffer.readUInt8(99),
+            crossFaderCurve: this.buffer.readUInt8(98),
+            channelFaderCurve: this.buffer.readUInt8(97),
+            beatFxOn: this.buffer.readUInt8(100) === 1,
+            beatFxSelect: this.buffer.readUInt8(103),
+            beatFxLevelDepth: this.buffer.readUInt8(101),
+            beatFxChannelSelect: this.buffer.readUInt8(102),
+            headphonesALevel: this.buffer.readUInt8(108),
+            headphonesBLevel: this.buffer.readUInt8(110),
+            boothLevel: this.buffer.readUInt8(112),
+            channels: [125, 149, 173, 197, 221, 245].map(parseChannel),
+        };
+    }
+
+    write(): void {
+        throw new Error("not supported!");
+    }
+    length(): number {
+        return 270;
+    }
+}
+
+export class TCNetDataPacketBeatGrid extends TCNetDataPacket {
+    data: BeatGridData | null = null;
+
+    read(): void {
+        this.readFromOffset(42);
+    }
+
+    // アセンブル済みバッファからのパース用
+    readAssembled(assembled: Buffer): void {
+        this.readFromOffset(0, assembled);
+    }
+
+    private readFromOffset(dataStart: number, buf?: Buffer): void {
+        const source = buf ?? this.buffer;
+        const entries: BeatGridEntry[] = [];
+        for (let offset = dataStart; offset + 8 <= source.length; offset += 8) {
+            const beatNumber = source.readUInt16LE(offset);
+            const beatType = source.readUInt8(offset + 2);
+            const timestampMs = source.readUInt32LE(offset + 4);
+            // 仕様書に明示的な記載はないが、実機観察に基づきゼロエントリをスキップする
+            if (beatNumber === 0 && timestampMs === 0) continue;
+            entries.push({ beatNumber, beatType, timestampMs });
+        }
+        this.data = { entries };
+    }
+
+    write(): void {
+        throw new Error("not supported!");
+    }
+    length(): number {
+        return 2442;
+    }
+}
+
+export class TCNetDataPacketBigWaveForm extends TCNetDataPacket {
+    data: WaveformData | null = null;
+
+    read(): void {
+        // T7: parseWaveformBars ヘルパーを使用して重複を排除する
+        this.data = { bars: parseWaveformBars(this.buffer, 42) };
+    }
+
+    // アセンブル済みバッファからのパース用
+    readAssembled(assembled: Buffer): void {
+        this.data = { bars: parseWaveformBars(assembled, 0) };
+    }
+
+    write(): void {
+        throw new Error("not supported!");
+    }
+    length(): number {
+        return -1;
+    }
+}
+
 export interface Constructable<T> {
     new (...args: unknown[]): T;
 }
@@ -437,9 +639,9 @@ export const TCNetPackets: Record<TCNetMessageType, Constructable<TCNetPacket> |
 export const TCNetDataPackets: Record<TCNetDataPacketType, typeof TCNetDataPacket | null> = {
     [TCNetDataPacketType.MetricsData]: TCNetDataPacketMetrics,
     [TCNetDataPacketType.MetaData]: TCNetDataPacketMetadata,
-    [TCNetDataPacketType.BeatGridData]: null, // not yet implemented
-    [TCNetDataPacketType.CUEData]: null, // not yet implemented
-    [TCNetDataPacketType.SmallWaveFormData]: null, // not yet implemented
-    [TCNetDataPacketType.BigWaveFormData]: null, // not yet implemented
-    [TCNetDataPacketType.MixerData]: null, // not yet implemented
+    [TCNetDataPacketType.BeatGridData]: TCNetDataPacketBeatGrid,
+    [TCNetDataPacketType.CUEData]: TCNetDataPacketCUE,
+    [TCNetDataPacketType.SmallWaveFormData]: TCNetDataPacketSmallWaveForm,
+    [TCNetDataPacketType.BigWaveFormData]: TCNetDataPacketBigWaveForm,
+    [TCNetDataPacketType.MixerData]: TCNetDataPacketMixer,
 };
