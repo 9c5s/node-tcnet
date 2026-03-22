@@ -44,6 +44,11 @@ pre-commit:
     - name: build
       run: npm run build
 
+    - name: changeset-validate
+      glob: ".changeset/*.md"
+      exclude: 'README\.md'
+      run: npx tsx scripts/validate-changeset.ts {staged_files}
+
     - name: mdlint
       glob: "**/*.{md,MD}"
       exclude: 'node_modules|CHANGELOG\.md'
