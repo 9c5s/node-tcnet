@@ -59,6 +59,28 @@ describe("TCNetDataPacketSmallWaveForm", () => {
     it("write() はエラーを投げる", () => {
         expect(() => new TCNetDataPacketSmallWaveForm().write()).toThrow("not supported!");
     });
+
+    it("奇数バイト境界のバッファ (dataStart=42, 1バイト) では bars が空になる", () => {
+        // Arrange: 43 バイトのバッファ = dataStart(42) + 1 バイト
+        // 2 バイトペアを構成できないため safeEnd が dataStart と等しくなり bars=[]
+        const buffer = Buffer.alloc(43);
+        buffer.writeUInt8(3, 2);
+        buffer.write("TCN", 4, "ascii");
+        buffer.writeUInt8(200, 7);
+        buffer.writeUInt8(16, 24);
+        buffer.writeUInt8(1, 25);
+        buffer.writeUInt8(255, 42); // 残り 1 バイト
+
+        // Act
+        const packet = new TCNetDataPacketSmallWaveForm();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+
+        // Assert
+        expect(packet.data).not.toBeNull();
+        expect(packet.data!.bars).toHaveLength(0);
+    });
 });
 
 describe("TCNetDataPacketBigWaveForm", () => {
@@ -103,5 +125,25 @@ describe("TCNetDataPacketBigWaveForm", () => {
 
     it("write() はエラーを投げる", () => {
         expect(() => new TCNetDataPacketBigWaveForm().write()).toThrow("not supported!");
+    });
+
+    it("readAssembled() で 5 バイトのバッファは bars.length = 2 になる (末尾 1 バイトは切り捨て)", () => {
+        // Arrange: 5 バイト = 2 ペア (4 バイト) + 端数 1 バイト → 奇数切り捨てで 2 バー
+        const assembled = Buffer.alloc(5);
+        assembled.writeUInt8(10, 0);
+        assembled.writeUInt8(20, 1);
+        assembled.writeUInt8(30, 2);
+        assembled.writeUInt8(40, 3);
+        assembled.writeUInt8(99, 4); // 切り捨てられる
+
+        // Act
+        const packet = new TCNetDataPacketBigWaveForm();
+        packet.readAssembled(assembled);
+
+        // Assert
+        expect(packet.data).not.toBeNull();
+        expect(packet.data!.bars).toHaveLength(2);
+        expect(packet.data!.bars[0]).toEqual({ level: 10, color: 20 });
+        expect(packet.data!.bars[1]).toEqual({ level: 30, color: 40 });
     });
 });

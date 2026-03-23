@@ -1,70 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type {
-    CuePoint,
-    CueData,
-    WaveformBar,
-    WaveformData,
-    BeatGridEntry,
-    BeatGridData,
-    MixerChannel,
-    MixerData,
-} from "../src/types";
 import { TCNetDataPacketCUE, TCNetManagementHeader } from "../src/network";
-
-describe("types", () => {
-    it("CueData の型が正しく定義されている", () => {
-        const cue: CueData = {
-            loopInTime: 0,
-            loopOutTime: 0,
-            cues: [],
-        };
-        expect(cue).toBeDefined();
-    });
-
-    it("WaveformData の型が正しく定義されている", () => {
-        const waveform: WaveformData = {
-            bars: [{ level: 128, color: 200 }],
-        };
-        expect(waveform.bars).toHaveLength(1);
-    });
-
-    it("BeatGridData の型が正しく定義されている", () => {
-        const beatgrid: BeatGridData = {
-            entries: [{ beatNumber: 1, beatType: 20, timestampMs: 1000 }],
-        };
-        expect(beatgrid.entries).toHaveLength(1);
-    });
-
-    it("MixerData の型が正しく定義されている", () => {
-        const mixer: MixerData = {
-            mixerId: 1,
-            mixerType: 0,
-            mixerName: "DJM-900NXS2",
-            masterAudioLevel: 100,
-            masterFaderLevel: 127,
-            masterFilter: 64,
-            masterIsolatorOn: false,
-            masterIsolatorHi: 64,
-            masterIsolatorMid: 64,
-            masterIsolatorLow: 64,
-            filterHpf: 0,
-            filterLpf: 127,
-            filterResonance: 0,
-            crossFader: 64,
-            crossFaderCurve: 0,
-            channelFaderCurve: 0,
-            beatFxOn: false,
-            beatFxSelect: 0,
-            beatFxLevelDepth: 0,
-            beatFxChannelSelect: 0,
-            headphonesALevel: 0,
-            headphonesBLevel: 0,
-            boothLevel: 0,
-            channels: [],
-        };
-        expect(mixer.mixerName).toBe("DJM-900NXS2");
-    });
-});
 
 describe("TCNetDataPacketCUE", () => {
     function createHeader(buffer: Buffer): TCNetManagementHeader {
@@ -138,5 +73,26 @@ describe("TCNetDataPacketCUE", () => {
 
     it("write() はエラーを投げる", () => {
         expect(() => new TCNetDataPacketCUE().write()).toThrow("not supported!");
+    });
+
+    it("全 CUE スロットの type が 0 の場合 cues は空配列になる", () => {
+        // Arrange: 全 18 スロットの type バイトを 0 にする (Buffer.alloc のデフォルトで全バイトが 0)
+        const buffer = Buffer.alloc(436);
+        buffer.writeUInt8(3, 2);
+        buffer.write("TCN", 4, "ascii");
+        buffer.writeUInt8(200, 7);
+        buffer.writeUInt8(12, 24);
+        buffer.writeUInt8(1, 25);
+        // type バイト (各スロット offset + 0) はデフォルト 0 のためスキップされる
+
+        // Act
+        const packet = new TCNetDataPacketCUE();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+
+        // Assert
+        expect(packet.data).not.toBeNull();
+        expect(packet.data!.cues).toHaveLength(0);
     });
 });

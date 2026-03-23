@@ -4,6 +4,7 @@ no_tty: true
 pre-commit:
   parallel: true
   jobs:
+    # ガードチェック
     - name: protect-branch
       run: >
         d=$(git symbolic-ref --quiet --short
@@ -15,19 +16,7 @@ pre-commit:
     - name: ignored-files
       run: "! git check-ignore {staged_files}"
 
-    - name: lefthook
-      glob: lefthook.yml
-      run: bunx lefthook validate
-
-    - name: actionlint
-      glob: '.github/workflows/*.{yml,yaml}'
-      run: bunx actionlint {staged_files}
-
-    - name: zizmor
-      glob: '.github/{workflows/*.{yml,yaml},dependabot.yml}'
-      run: bunx zizmor --fix --pedantic {staged_files}
-      stage_fixed: true
-
+    # TypeScript
     - name: format
       glob: "**/*.{ts,json,jsonc,html,css}"
       run: npx prettier --write {staged_files}
@@ -41,15 +30,16 @@ pre-commit:
     - name: typecheck
       run: npx tsc --noEmit
 
+    - name: test
+      glob: "**/*.ts"
+      exclude: '\.d\.ts$'
+      run: npm run test
+
     - name: build
       run: npm run build
 
-    - name: changeset-validate
-      glob: ".changeset/*.md"
-      exclude: 'README\.md'
-      run: npx tsx scripts/validate-changeset.ts {staged_files}
-
-    - name: mdlint
+    # Markdown
+    - name: markdownlint
       glob: "**/*.{md,MD}"
       exclude: 'node_modules|CHANGELOG\.md'
       run: npx markdownlint-cli2 {staged_files}
@@ -57,6 +47,26 @@ pre-commit:
     - name: textlint
       glob: "{docs/wiki/**/*.md,README.MD}"
       run: npx textlint {staged_files}
+
+    # GitHub Actions
+    - name: actionlint
+      glob: '.github/workflows/*.{yml,yaml}'
+      run: bunx actionlint {staged_files}
+
+    - name: zizmor
+      glob: '.github/{workflows/*.{yml,yaml},dependabot.yml}'
+      run: bunx zizmor --fix --pedantic {staged_files}
+      stage_fixed: true
+
+    # 設定ファイル
+    - name: lefthook
+      glob: lefthook.yml
+      run: bunx lefthook validate
+
+    - name: changeset-validate
+      glob: ".changeset/*.md"
+      exclude: 'README\.md'
+      run: npx tsx scripts/validate-changeset.ts {staged_files}
 
 commit-msg:
   jobs:

@@ -60,3 +60,27 @@ describe("receiveUnicast マルチパケット対応", () => {
         expect(handler.mock.calls[0][0]).toBeInstanceOf(nw.TCNetDataPacketSmallWaveForm);
     });
 });
+
+describe("TCNetClient.requestData() layer バリデーション", () => {
+    // バリデーション失敗時は sendServer に到達しないため、接続状態不要でテスト可能
+
+    it("layer = -1 は RangeError で reject される", async () => {
+        const client = new TestTCNetClient();
+        await expect(client.requestData(2, -1)).rejects.toThrow(RangeError);
+    });
+
+    it("layer = 8 は RangeError で reject される", async () => {
+        const client = new TestTCNetClient();
+        await expect(client.requestData(2, 8)).rejects.toThrow(RangeError);
+    });
+
+    it("layer = 3.5 (小数) は RangeError で reject される", async () => {
+        const client = new TestTCNetClient();
+        await expect(client.requestData(2, 3.5)).rejects.toThrow(RangeError);
+    });
+
+    it("layer = NaN は RangeError で reject される", async () => {
+        const client = new TestTCNetClient();
+        await expect(client.requestData(2, NaN)).rejects.toThrow(RangeError);
+    });
+});
