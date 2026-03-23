@@ -5,6 +5,9 @@ on:
   push:
     branches:
       - main
+    paths:
+      - '.changeset/**'
+      - 'package.json'
 
 permissions: {}
 
@@ -24,16 +27,17 @@ jobs:
       packages: write # GitHub Packages publishに必要
     steps:
       - name: リポジトリのチェックアウト
-        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         # zizmor: ignore[artipacked] changesets-actionがgit pushするためcredentialsの永続化が必要
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Node.jsセットアップ
-        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: 24.x
           cache: 'npm'
+          registry-url: https://registry.npmjs.org
 
       - name: 依存パッケージのインストール
         run: npm ci
@@ -52,7 +56,7 @@ jobs:
 
       - name: GitHub Packages用 Node.jsセットアップ
         if: steps.changesets.outputs.published == 'true'
-        uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: 24.x
           registry-url: https://npm.pkg.github.com
