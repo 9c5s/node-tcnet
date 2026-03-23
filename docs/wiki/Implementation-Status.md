@@ -31,19 +31,17 @@ node-tcnetにおけるTCNet V3.5.1B仕様の実装状況をまとめる。
 |----------|------|--------|------|
 | 2 | Metrics Data | 122 | BPM, Speed, Position等 |
 | 4 | Meta Data | 548 | Artist, Title, TrackID。V3.5.0+のUTF-16LEに対応 |
+| 8 | Beat Grid Data | 2442 | マルチパケット。MultiPacketAssemblerで自動組み立て |
+| 12 | CUE Data | 436 | 最大18キュー、Loop In/Out Time |
+| 16 | Small Wave Form | 2442 | 1200バーの波形データ |
+| 32 | Big Wave Form | 可変 | マルチパケット。MultiPacketAssemblerで自動組み立て |
+| 150 | Mixer Data | 270 | 6チャンネル対応 |
 
 ## 未実装DataPacketタイプ
 
-以下のDataTypeはパケット受信時にTCNetDataPacket基底クラスとしてパースされる。個別フィールドの読み取りは未実装。
-
 | DataType | 名称 | サイズ | 備考 |
 |----------|------|--------|------|
-| 8 | Beat Grid Data | 2442 | マルチパケット |
-| 12 | CUE Data | 436 | 最大18キュー |
-| 16 | Small Wave Form | 2442 | マルチパケット、1200バーの波形 |
-| 32 | Big Wave Form | 可変 | マルチパケット |
 | 128 | Low Res Artwork | 可変 | JPEG形式、マルチパケット(File Type 204) |
-| 150 | Mixer Data | 270 | 6チャンネル対応 |
 
 ## 仕様との既知の差異
 
