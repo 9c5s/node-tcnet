@@ -94,11 +94,8 @@ npx changeset
 
 ## PR作成
 
-このリポジトリは`chdxD1/node-tcnet`のフォークに当たる。
-`gh pr create`のデフォルトはupstreamの`chdxD1/node-tcnet`に向くため、必ず`--repo`を指定する。
-
 ```bash
-gh pr create --repo 9c5s/node-tcnet
+gh pr create
 ```
 
 ## Windows環境の注意事項
