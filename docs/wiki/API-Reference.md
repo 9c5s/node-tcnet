@@ -66,7 +66,9 @@ requestData(dataType: number, layer: number): Promise<TCNetDataPacket>
 
 - `dataType` -- `TCNetDataPacketType`の値を指定する
 - `layer` -- 0-based(0-7)。内部で+1して仕様の1-basedに変換する
+- BigWaveFormDataとBeatGridDataはマルチパケットで返されるため、内部のMultiPacketAssemblerで自動組み立て後に解決する
 - タイムアウト時は例外を投げる
+- `layer`が0-7の整数でない場合は`RangeError`でrejectされる
 
 #### broadcastPacket
 
@@ -215,9 +217,163 @@ Dataパケットの基底クラス。
 | `totalTimeMillis` | `number` | 総時間(ms) |
 | `beatMarker` | `number` | ビートマーカー |
 | `state` | `TCNetLayerStatus` | レイヤー状態 |
-| `onAir` | `number` | On Air状態(非対応時は255) |
+| `onAir` | `number` | On Air状態。V3.3.3以前のパケット(154バイト)では255、V3.3.3以上(162バイト)では実値 |
 
 `generalSMPTEMode`プロパティ(getter): SMPTEモードを返す。
+
+### TCNetDataPacketCUE
+
+レイヤーのCUEデータ。`TCNetDataPacket`を継承する。
+
+`data`プロパティを持つ(`CueData | null`)。
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `loopInTime` | `number` | ループイン時間(ms) |
+| `loopOutTime` | `number` | ループアウト時間(ms) |
+| `cues` | `CuePoint[]` | CUEポイントの配列(最大18個、type=0のスロットは除外) |
+
+`CuePoint`の構造:
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `index` | `number` | CUEインデックス(1-18) |
+| `type` | `number` | CUEタイプ |
+| `inTime` | `number` | イン時間(ms) |
+| `outTime` | `number` | アウト時間(ms) |
+| `color` | `{ r: number; g: number; b: number }` | CUEカラー(RGB) |
+
+### TCNetDataPacketSmallWaveForm
+
+小波形データ。`TCNetDataPacket`を継承する。1200バーの波形を含む。
+
+`data`プロパティを持つ(`WaveformData | null`)。
+
+### TCNetDataPacketBigWaveForm
+
+大波形データ。`TCNetDataPacket`を継承する。可変長のマルチパケット。
+
+`data`プロパティを持つ(`WaveformData | null`)。
+
+`WaveformData`の構造:
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `bars` | `WaveformBar[]` | 波形バーの配列 |
+
+`WaveformBar`の構造:
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `level` | `number` | レベル(0-255) |
+| `color` | `number` | カラー(0-255) |
+
+### TCNetDataPacketBeatGrid
+
+ビートグリッドデータ。`TCNetDataPacket`を継承する。マルチパケット。
+
+`data`プロパティを持つ(`BeatGridData | null`)。
+
+`BeatGridData`の構造:
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `entries` | `BeatGridEntry[]` | ビートグリッドエントリの配列(beatNumber=0かつtimestampMs=0のエントリは除外) |
+
+`BeatGridEntry`の構造:
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `beatNumber` | `number` | ビート番号 |
+| `beatType` | `number` | ビートタイプ |
+| `timestampMs` | `number` | タイムスタンプ(ms) |
+
+### TCNetDataPacketMixer
+
+ミキサーデータ。`TCNetDataPacket`を継承する。6チャンネル対応。
+
+`data`プロパティを持つ(`MixerData | null`)。
+
+`MixerData`の構造:
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `mixerId` | `number` | ミキサーID |
+| `mixerType` | `number` | ミキサータイプ |
+| `mixerName` | `string` | ミキサー名 |
+| `masterAudioLevel` | `number` | マスターオーディオレベル |
+| `masterFaderLevel` | `number` | マスターフェーダーレベル |
+| `masterFilter` | `number` | マスターフィルター |
+| `masterIsolatorOn` | `boolean` | マスターアイソレーターON/OFF |
+| `masterIsolatorHi` | `number` | マスターアイソレーターHi |
+| `masterIsolatorMid` | `number` | マスターアイソレーターMid |
+| `masterIsolatorLow` | `number` | マスターアイソレーターLow |
+| `filterHpf` | `number` | フィルターHPF |
+| `filterLpf` | `number` | フィルターLPF |
+| `filterResonance` | `number` | フィルターレゾナンス |
+| `crossFader` | `number` | クロスフェーダー位置 |
+| `crossFaderCurve` | `number` | クロスフェーダーカーブ |
+| `channelFaderCurve` | `number` | チャンネルフェーダーカーブ |
+| `beatFxOn` | `boolean` | Beat FX ON/OFF |
+| `beatFxSelect` | `number` | Beat FXセレクト |
+| `beatFxLevelDepth` | `number` | Beat FXレベル/デプス |
+| `beatFxChannelSelect` | `number` | Beat FXチャンネルセレクト |
+| `headphonesALevel` | `number` | ヘッドフォンAレベル |
+| `headphonesBLevel` | `number` | ヘッドフォンBレベル |
+| `boothLevel` | `number` | ブースレベル |
+| `channels` | `MixerChannel[]` | 6チャンネルの配列 |
+
+`MixerChannel`の構造:
+
+| フィールド | 型 | 説明 |
+| --- | --- | --- |
+| `sourceSelect` | `number` | ソース選択 |
+| `audioLevel` | `number` | オーディオレベル |
+| `faderLevel` | `number` | フェーダーレベル |
+| `trimLevel` | `number` | トリムレベル |
+| `compLevel` | `number` | コンプレッサーレベル |
+| `eqHi` | `number` | EQ Hi |
+| `eqHiMid` | `number` | EQ Hi-Mid |
+| `eqLowMid` | `number` | EQ Low-Mid |
+| `eqLow` | `number` | EQ Low |
+| `filterColor` | `number` | フィルターカラー |
+| `send` | `number` | センドレベル |
+| `cueA` | `number` | CUE A |
+| `cueB` | `number` | CUE B |
+| `crossfaderAssign` | `number` | クロスフェーダーアサイン |
+
+---
+
+## MultiPacketAssembler
+
+BigWaveFormやBeatGridなどのマルチパケットを組み立てるユーティリティクラス。
+`requestData()`で内部的に使用されるが、単体でも利用可能。
+
+### メソッド
+
+#### add
+
+```ts
+add(buffer: Buffer): boolean
+```
+
+パケットを追加する。全パケットが揃った場合に`true`を返す。
+
+#### assemble
+
+```ts
+assemble(): Buffer
+```
+
+packetNo順にソートしてデータを結合したBufferを返す。
+
+#### reset
+
+```ts
+reset(): void
+```
+
+内部状態をリセットする。
 
 ---
 
@@ -251,11 +407,11 @@ Dataパケットのサブタイプ。
 | --- | --- | --- |
 | 2 | `MetricsData` | 再生メトリクス |
 | 4 | `MetaData` | トラックメタデータ |
-| 8 | `BeatGridData` | ビートグリッド(未実装) |
-| 12 | `CUEData` | キューデータ(未実装) |
-| 16 | `SmallWaveFormData` | 小波形(未実装) |
-| 32 | `BigWaveFormData` | 大波形(未実装) |
-| 150 | `MixerData` | ミキサー(未実装) |
+| 8 | `BeatGridData` | ビートグリッド |
+| 12 | `CUEData` | キューデータ |
+| 16 | `SmallWaveFormData` | 小波形 |
+| 32 | `BigWaveFormData` | 大波形 |
+| 150 | `MixerData` | ミキサー |
 
 ### NodeType
 
