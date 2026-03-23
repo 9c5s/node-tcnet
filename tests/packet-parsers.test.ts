@@ -648,8 +648,8 @@ describe("TCNetDataPacketMetadata", () => {
 
         // Assert
         expect(packet.info).not.toBeNull();
-        expect(packet.info!.trackArtist).toBe(artist);
-        expect(packet.info!.trackTitle).toBe(title);
+        expect(packet.info!.trackArtist).toBe("DJ Shadow");
+        expect(packet.info!.trackTitle).toBe("Endtroducing");
         expect(packet.info!.trackKey).toBe(5);
         expect(packet.info!.trackID).toBe(42);
     });
