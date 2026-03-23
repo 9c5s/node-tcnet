@@ -51,7 +51,7 @@ Git hookをlefthookで管理している。`npx lefthook install`で有効化さ
 | └ lint | `**/*.ts` (`.d.ts`除外) | ESLint |
 | typecheck | `**/*.ts`, `tsconfig.json` | `tsc --noEmit` |
 | test | `**/*.ts` (`.d.ts`除外) | vitest実行 |
-| build | `**/*.ts` | tsupビルド |
+| build | `**/*.ts`, `tsconfig.json` | tsupビルド |
 | markdownlint | `**/*.{md,MD}` (`CHANGELOG.md`除外) | markdownlint |
 | textlint | `docs/wiki/**/*.md`, `README.MD` | textlint |
 | **ci-lint** (group, 逐次実行) | | |

@@ -41,7 +41,7 @@ pre-commit:
       run: npm run test
 
     - name: build
-      glob: "**/*.ts"
+      glob: "{**/*.ts,tsconfig.json}"
       run: npm run build
 
     # Markdown
