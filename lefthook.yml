@@ -33,7 +33,7 @@ pre-commit:
     - name: test
       glob: "**/*.ts"
       exclude: '\.d\.ts$'
-      run: npx vitest run
+      run: npm run test
 
     - name: build
       run: npm run build
