@@ -41,6 +41,11 @@ pre-commit:
     - name: typecheck
       run: npx tsc --noEmit
 
+    - name: test
+      glob: "**/*.ts"
+      exclude: '\.d\.ts$'
+      run: npx vitest run
+
     - name: build
       run: npm run build
 
