@@ -27,7 +27,7 @@ npm run build
 | コマンド | 内容 |
 | --- | --- |
 | `npm run lint` | ESLint (TypeScript) |
-| `npm run format:fix` | Prettier (ts, json, jsonc, html, css) |
+| `npm run format:fix` | Prettier (ts, html, css, json, jsonc) |
 | `npm run format:check` | Prettierチェックのみ |
 | `npm run mdlint` | markdownlint-cli2 |
 | `npm run mdlint:fix` | markdownlint自動修正 |
