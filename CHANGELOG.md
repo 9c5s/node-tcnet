@@ -1,5 +1,38 @@
 # @9c5s/node-tcnet
 
+## 0.6.0
+
+### Minor Changes
+
+-   31a2597: 全 DataPacket タイプの専用パケットクラスを実装し、SmallWaveFormData/CUEData 等のリクエストタイムアウトを修正
+
+    -   TCNetDataPacketCUE: CUE データのパース (436B)
+    -   TCNetDataPacketSmallWaveForm: 小波形データのパース (2442B)
+    -   TCNetDataPacketBigWaveForm: 大波形データのパース (可変長, マルチパケット対応)
+    -   TCNetDataPacketBeatGrid: ビートグリッドデータのパース (2442B, マルチパケット対応)
+    -   TCNetDataPacketMixer: ミキサーデータのパース (270B)
+    -   MultiPacketAssembler: マルチパケット組み立てクラス
+    -   receiveUnicast のマルチパケットアセンブリ対応
+
+-   bd8b681: `TCNetConfiguration.brodcastListeningAddress` を
+    `broadcastListeningAddress` にリネーム (タイポ修正)
+
+    `broadcastListeningAddress` のデフォルト値を `broadcastAddress` から `"0.0.0.0"` に変更
+
+### Patch Changes
+
+-   090bc6a: プロトコル実装のバグを修正
+
+    -   OptIn パケットの writeUInt8 引数順序を修正 (バージョン情報が正しく送信されなかった)
+    -   Windows 環境でブロードキャストアドレスが正しく計算されるよう修正
+    -   デフォルトユニキャストポートを仕様準拠の 65023 に修正
+    -   requestData()の 0-based layer index を 1-based ワイヤフォーマットに正しく変換するよう修正
+    -   sendServer()で broadcastSocket を使用するよう修正 (Bridge は UDP ポート 60000 からのリクエストのみ受付)
+    -   receiveBroadcast()で Master の OptIn 検出を復元 (c2c1b7f で削除されていた)
+    -   Request タイムアウト管理を追加 (未応答リクエストによるメモリリークを防止)
+    -   disconnect 時に timestampSocket を適切にクローズするよう修正
+    -   example の packet.layer 参照を 0-based API に合わせて修正
+
 ## 0.5.1
 
 ### Patch Changes
