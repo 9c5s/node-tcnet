@@ -27,7 +27,7 @@ npm run build
 | コマンド | 内容 |
 | --- | --- |
 | `npm run lint` | ESLint (TypeScript) |
-| `npm run format:fix` | Prettier (ts, json, html, css) |
+| `npm run format:fix` | Prettier (ts, html, css, json, jsonc) |
 | `npm run format:check` | Prettierチェックのみ |
 | `npm run mdlint` | markdownlint-cli2 |
 | `npm run mdlint:fix` | markdownlint自動修正 |
@@ -46,15 +46,17 @@ Git hookをlefthookで管理している。`npx lefthook install`で有効化さ
 | --- | --- | --- |
 | protect-branch | - | メインブランチへの直接コミットを禁止する |
 | ignored-files | - | .gitignore対象ファイルのステージングを検出する |
-| lefthook | `lefthook.yml` | lefthook設定のバリデーション |
-| actionlint | `.github/workflows/*.{yml,yaml}` | GitHub Actionsのlint |
-| zizmor | `.github/workflows/*.{yml,yaml}` | GitHub Actionsのセキュリティチェック |
-| format | `**/*.{ts,json,html,css}` | Prettierによる自動整形 |
+| format | `**/*.{ts,json,jsonc,html,css}` | Prettierによる自動整形 |
 | lint | `**/*.ts` (`.d.ts`除外) | ESLint |
 | typecheck | - | `tsc --noEmit` |
+| test | `**/*.ts` (`.d.ts`除外) | vitest実行 |
 | build | - | tsupビルド |
-| mdlint | `**/*.{md,MD}` (`CHANGELOG.md`除外) | markdownlint |
+| markdownlint | `**/*.{md,MD}` (`CHANGELOG.md`除外) | markdownlint |
 | textlint | `docs/wiki/**/*.md` | textlint |
+| actionlint | `.github/workflows/*.{yml,yaml}` | GitHub Actionsのlint |
+| zizmor | `.github/{workflows/*.{yml,yaml},dependabot.yml}` | GitHub Actionsのセキュリティチェック |
+| lefthook | `lefthook.yml` | lefthook設定のバリデーション |
+| changeset-validate | `.changeset/*.md` | changesetファイルのバリデーション |
 
 ### commit-msg
 
@@ -92,11 +94,8 @@ npx changeset
 
 ## PR作成
 
-このリポジトリは`chdxD1/node-tcnet`のフォークに当たる。
-`gh pr create`のデフォルトはupstreamの`chdxD1/node-tcnet`に向くため、必ず`--repo`を指定する。
-
 ```bash
-gh pr create --repo 9c5s/node-tcnet
+gh pr create
 ```
 
 ## Windows環境の注意事項
