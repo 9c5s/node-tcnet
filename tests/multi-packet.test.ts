@@ -144,4 +144,25 @@ describe("MultiPacketAssembler", () => {
         expect(assembler.add(buf1)).toBe(false);
         expect(assembler.add(buf2)).toBe(true); // 3パケット揃った
     });
+
+    it("同じ packetNo で add() すると後のデータで上書きされる", () => {
+        // Arrange
+        const assembler = new MultiPacketAssembler();
+        // packetNo=0 を 2 回 add() する (Map.set() の上書き動作の確認)
+        const buf0First = createMultiPacketBuffer(2, 0, 4, [10, 11, 12, 13]);
+        const buf0Second = createMultiPacketBuffer(2, 0, 4, [99, 98, 97, 96]); // 上書き用
+        const buf1 = createMultiPacketBuffer(2, 1, 4, [20, 21, 22, 23]);
+
+        // Act: 同じ packetNo=0 を 2 度送信した後、packetNo=1 を送信する
+        assembler.add(buf0First);
+        assembler.add(buf0Second); // packetNo=0 を上書きする
+        expect(assembler.add(buf1)).toBe(true); // 2パケット揃った
+        const result = assembler.assemble();
+
+        // Assert: 先頭 4 バイトが後から上書きした値になっている
+        expect(result.readUInt8(0)).toBe(99);
+        expect(result.readUInt8(1)).toBe(98);
+        expect(result.readUInt8(2)).toBe(97);
+        expect(result.readUInt8(3)).toBe(96);
+    });
 });
