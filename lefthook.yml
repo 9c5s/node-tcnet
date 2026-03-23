@@ -1,5 +1,6 @@
 colors: false
 no_tty: true
+glob_matcher: doublestar
 
 pre-commit:
   parallel: true
@@ -16,18 +17,22 @@ pre-commit:
     - name: ignored-files
       run: "! git check-ignore {staged_files}"
 
-    # TypeScript
-    - name: format
-      glob: "**/*.{ts,json,jsonc,html,css}"
-      run: npx prettier --write {staged_files}
-      stage_fixed: true
-
-    - name: lint
-      glob: "**/*.ts"
-      exclude: '\.d\.ts$'
-      run: npx eslint {staged_files}
+    # TypeScript (format → lint は逐次実行)
+    - name: code-style
+      group:
+        piped: true
+        jobs:
+          - name: format
+            glob: "**/*.{ts,js,mjs,json,jsonc}"
+            run: npx prettier --write {staged_files}
+            stage_fixed: true
+          - name: lint
+            glob: "**/*.ts"
+            exclude: '\.d\.ts$'
+            run: npx eslint {staged_files}
 
     - name: typecheck
+      glob: "{**/*.ts,tsconfig.json}"
       run: npx tsc --noEmit
 
     - name: test
@@ -36,27 +41,31 @@ pre-commit:
       run: npm run test
 
     - name: build
+      glob: "{**/*.ts,tsconfig.json}"
       run: npm run build
 
     # Markdown
     - name: markdownlint
       glob: "**/*.{md,MD}"
-      exclude: 'node_modules|CHANGELOG\.md'
+      exclude: 'CHANGELOG\.md'
       run: npx markdownlint-cli2 {staged_files}
 
     - name: textlint
       glob: "{docs/wiki/**/*.md,README.MD}"
       run: npx textlint {staged_files}
 
-    # GitHub Actions
-    - name: actionlint
-      glob: '.github/workflows/*.{yml,yaml}'
-      run: bunx actionlint {staged_files}
-
-    - name: zizmor
-      glob: '.github/{workflows/*.{yml,yaml},dependabot.yml}'
-      run: bunx zizmor --fix --pedantic {staged_files}
-      stage_fixed: true
+    # GitHub Actions (zizmor --fix → actionlint は逐次実行)
+    - name: ci-lint
+      group:
+        piped: true
+        jobs:
+          - name: zizmor
+            glob: '.github/{workflows/*.{yml,yaml},dependabot.yml}'
+            run: bunx zizmor --fix --pedantic {staged_files}
+            stage_fixed: true
+          - name: actionlint
+            glob: '.github/workflows/*.{yml,yaml}'
+            run: bunx actionlint {staged_files}
 
     # 設定ファイル
     - name: lefthook
