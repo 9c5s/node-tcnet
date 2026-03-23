@@ -20,16 +20,26 @@ jobs:
     permissions:
       contents: read # リポジトリのチェックアウトに必要
     steps:
-      - uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
+      - name: リポジトリのチェックアウト
+        uses: actions/checkout@692973e3d937129bcbf40652eb9f2f61becf3332 # v4.1.7
         with:
           persist-credentials: false
           fetch-depth: 2
-      - name: Use Node.js
+
+      - name: Node.jsセットアップ
         uses: actions/setup-node@395ad3262231945c25e8478fd5baf05154b1d79f # v6.1.0
         with:
           node-version: 24.x
           cache: 'npm'
-      - run: npm install --frozen-lockfile
-      - run: npm run build
-      - run: npm run lint
-      - run: npm run format:check
+
+      - name: 依存パッケージのインストール
+        run: npm ci
+
+      - name: ビルド
+        run: npm run build
+
+      - name: Lint
+        run: npm run lint
+
+      - name: フォーマットチェック
+        run: npm run format:check
