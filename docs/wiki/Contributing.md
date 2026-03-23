@@ -27,7 +27,7 @@ npm run build
 | コマンド | 内容 |
 | --- | --- |
 | `npm run lint` | ESLint (TypeScript) |
-| `npm run format:fix` | Prettier (ts, html, css, json, jsonc) |
+| `npm run format:fix` | Prettier (ts, js, mjs, json, jsonc) |
 | `npm run format:check` | Prettierチェックのみ |
 | `npm run mdlint` | markdownlint-cli2 |
 | `npm run mdlint:fix` | markdownlint自動修正 |
@@ -40,21 +40,23 @@ Git hookをlefthookで管理している。`npx lefthook install`で有効化さ
 
 ### pre-commit
 
-以下のジョブが並列実行される。
+以下のジョブが実行される。stage_fixedを持つジョブの競合を防ぐため、code-styleグループ (format → lint) とci-lintグループ (zizmor → actionlint) はグループ内で逐次実行される。その他のジョブは並列実行される。
 
 | ジョブ | 対象 | 内容 |
 | --- | --- | --- |
 | protect-branch | - | メインブランチへの直接コミットを禁止する |
 | ignored-files | - | .gitignore対象ファイルのステージングを検出する |
-| format | `**/*.{ts,json,jsonc,html,css}` | Prettierによる自動整形 |
-| lint | `**/*.ts` (`.d.ts`除外) | ESLint |
-| typecheck | - | `tsc --noEmit` |
+| **code-style** (group, 逐次実行) | | |
+| ├ format | `**/*.{ts,js,mjs,json,jsonc}` | Prettierによる自動整形 |
+| └ lint | `**/*.ts` (`.d.ts`除外) | ESLint |
+| typecheck | `**/*.ts`, `tsconfig.json` | `tsc --noEmit` |
 | test | `**/*.ts` (`.d.ts`除外) | vitest実行 |
-| build | - | tsupビルド |
+| build | `**/*.ts`, `tsconfig.json` | tsupビルド |
 | markdownlint | `**/*.{md,MD}` (`CHANGELOG.md`除外) | markdownlint |
-| textlint | `docs/wiki/**/*.md` | textlint |
-| actionlint | `.github/workflows/*.{yml,yaml}` | GitHub Actionsのlint |
-| zizmor | `.github/{workflows/*.{yml,yaml},dependabot.yml}` | GitHub Actionsのセキュリティチェック |
+| textlint | `docs/wiki/**/*.md`, `README.MD` | textlint |
+| **ci-lint** (group, 逐次実行) | | |
+| ├ zizmor | `.github/{workflows/*.{yml,yaml},dependabot.yml}` | GitHub Actionsのセキュリティチェック |
+| └ actionlint | `.github/workflows/*.{yml,yaml}` | GitHub Actionsのlint |
 | lefthook | `lefthook.yml` | lefthook設定のバリデーション |
 | changeset-validate | `.changeset/*.md` | changesetファイルのバリデーション |
 
@@ -105,3 +107,4 @@ lefthookをWindows環境で使用する場合、以下の制約がある。
 - `run`値にダブルクォート(`"`)を含めるとコマンドパーサーが壊れる
 - glob: `*.ts`はルートディレクトリのみにマッチする。サブディレクトリを含めるには`**/*.ts`を使用する
 - 複数行スクリプトは`>`(fold)と`;`または`&&`で1行にまとめる。`|`(literal block)内の`$()`は動作しない
+- `glob_matcher: doublestar`を設定している。`**`は0個以上のディレクトリにマッチする (デフォルトの`gobwas`では1個以上)
