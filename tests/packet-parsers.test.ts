@@ -7,6 +7,7 @@ import {
     TCNetRequestPacket,
     TCNetTimecode,
     TCNetTimePacket,
+    TCNetDataPacket,
     TCNetDataPacketMetrics,
     TCNetDataPacketMetadata,
     TCNetMessageType,
@@ -612,6 +613,50 @@ describe("TCNetDataPacketMetrics", () => {
 });
 
 // -----------------------------------------------------------------------
+// TCNetDataPacket (layer 1-based → 0-based 変換)
+// -----------------------------------------------------------------------
+
+describe("TCNetDataPacket", () => {
+    it("byte 25 = 1 のとき layer は 0 になる (1-based → 0-based 変換)", () => {
+        // Arrange
+        const buffer = Buffer.alloc(26);
+        buffer.writeUInt8(3, 2);
+        buffer.write("TCN", 4, "ascii");
+        buffer.writeUInt8(200, 7);
+        buffer.writeUInt8(2, 24); // dataType
+        buffer.writeUInt8(1, 25); // layer (1-based)
+
+        // Act
+        const packet = new TCNetDataPacket();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+
+        // Assert
+        expect(packet.layer).toBe(0);
+    });
+
+    it("byte 25 = 8 のとき layer は 7 になる (1-based → 0-based 変換)", () => {
+        // Arrange
+        const buffer = Buffer.alloc(26);
+        buffer.writeUInt8(3, 2);
+        buffer.write("TCN", 4, "ascii");
+        buffer.writeUInt8(200, 7);
+        buffer.writeUInt8(2, 24); // dataType
+        buffer.writeUInt8(8, 25); // layer (1-based)
+
+        // Act
+        const packet = new TCNetDataPacket();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+
+        // Assert
+        expect(packet.layer).toBe(7);
+    });
+});
+
+// -----------------------------------------------------------------------
 // TCNetDataPacketMetadata
 // -----------------------------------------------------------------------
 
@@ -684,5 +729,27 @@ describe("TCNetDataPacketMetadata", () => {
 
     it("length() は 548 を返す", () => {
         expect(new TCNetDataPacketMetadata().length()).toBe(548);
+    });
+
+    it("trackArtist/trackTitle 領域が全て \\x00 のとき空文字列になる", () => {
+        // Arrange: Buffer.alloc のデフォルトで全バイトが 0x00
+        const buffer = Buffer.alloc(548);
+        buffer.writeUInt8(3, 2);
+        buffer.write("TCN", 4, "ascii");
+        buffer.writeUInt8(200, 7);
+        buffer.writeUInt8(4, 24); // dataType = MetaData
+        buffer.writeUInt8(1, 25); // layer
+
+        // Act
+        const packet = new TCNetDataPacketMetadata();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer); // minorVersion=5
+
+        packet.read();
+
+        // Assert
+        expect(packet.info).not.toBeNull();
+        expect(packet.info!.trackArtist).toBe("");
+        expect(packet.info!.trackTitle).toBe("");
     });
 });

@@ -74,4 +74,25 @@ describe("TCNetDataPacketCUE", () => {
     it("write() はエラーを投げる", () => {
         expect(() => new TCNetDataPacketCUE().write()).toThrow("not supported!");
     });
+
+    it("全 CUE スロットの type が 0 の場合 cues は空配列になる", () => {
+        // Arrange: 全 18 スロットの type バイトを 0 にする (Buffer.alloc のデフォルトで全バイトが 0)
+        const buffer = Buffer.alloc(436);
+        buffer.writeUInt8(3, 2);
+        buffer.write("TCN", 4, "ascii");
+        buffer.writeUInt8(200, 7);
+        buffer.writeUInt8(12, 24);
+        buffer.writeUInt8(1, 25);
+        // type バイト (各スロット offset + 0) はデフォルト 0 のためスキップされる
+
+        // Act
+        const packet = new TCNetDataPacketCUE();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+
+        // Assert
+        expect(packet.data).not.toBeNull();
+        expect(packet.data!.cues).toHaveLength(0);
+    });
 });
