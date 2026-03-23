@@ -16,7 +16,7 @@
     "license": "MIT",
     "repository": {
         "type": "git",
-        "url": "https://github.com/9c5s/node-tcnet.git"
+        "url": "git+https://github.com/9c5s/node-tcnet.git"
     },
     "files": [
         "/dist"
