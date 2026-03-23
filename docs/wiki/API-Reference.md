@@ -68,7 +68,7 @@ requestData(dataType: number, layer: number): Promise<TCNetDataPacket>
 - `layer` -- 0-based(0-7)。内部で+1して仕様の1-basedに変換する
 - BigWaveFormDataとBeatGridDataはマルチパケットで返されるため、内部のMultiPacketAssemblerで自動組み立て後に解決する
 - タイムアウト時は例外を投げる
-- `layer`が0-7の整数でない場合は`RangeError`を投げる
+- `layer`が0-7の整数でない場合は`RangeError`でrejectされる
 
 #### broadcastPacket
 
@@ -294,15 +294,33 @@ Dataパケットの基底クラス。
 
 `data`プロパティを持つ(`MixerData | null`)。
 
-`MixerData`の主要フィールド:
+`MixerData`の構造:
 
 | フィールド | 型 | 説明 |
 | --- | --- | --- |
+| `mixerId` | `number` | ミキサーID |
+| `mixerType` | `number` | ミキサータイプ |
 | `mixerName` | `string` | ミキサー名 |
 | `masterAudioLevel` | `number` | マスターオーディオレベル |
 | `masterFaderLevel` | `number` | マスターフェーダーレベル |
+| `masterFilter` | `number` | マスターフィルター |
+| `masterIsolatorOn` | `boolean` | マスターアイソレーターON/OFF |
+| `masterIsolatorHi` | `number` | マスターアイソレーターHi |
+| `masterIsolatorMid` | `number` | マスターアイソレーターMid |
+| `masterIsolatorLow` | `number` | マスターアイソレーターLow |
+| `filterHpf` | `number` | フィルターHPF |
+| `filterLpf` | `number` | フィルターLPF |
+| `filterResonance` | `number` | フィルターレゾナンス |
 | `crossFader` | `number` | クロスフェーダー位置 |
+| `crossFaderCurve` | `number` | クロスフェーダーカーブ |
+| `channelFaderCurve` | `number` | チャンネルフェーダーカーブ |
 | `beatFxOn` | `boolean` | Beat FX ON/OFF |
+| `beatFxSelect` | `number` | Beat FXセレクト |
+| `beatFxLevelDepth` | `number` | Beat FXレベル/デプス |
+| `beatFxChannelSelect` | `number` | Beat FXチャンネルセレクト |
+| `headphonesALevel` | `number` | ヘッドフォンAレベル |
+| `headphonesBLevel` | `number` | ヘッドフォンBレベル |
+| `boothLevel` | `number` | ブースレベル |
 | `channels` | `MixerChannel[]` | 6チャンネルの配列 |
 
 `MixerChannel`の構造:
@@ -312,9 +330,17 @@ Dataパケットの基底クラス。
 | `sourceSelect` | `number` | ソース選択 |
 | `audioLevel` | `number` | オーディオレベル |
 | `faderLevel` | `number` | フェーダーレベル |
+| `trimLevel` | `number` | トリムレベル |
+| `compLevel` | `number` | コンプレッサーレベル |
 | `eqHi` | `number` | EQ Hi |
+| `eqHiMid` | `number` | EQ Hi-Mid |
+| `eqLowMid` | `number` | EQ Low-Mid |
 | `eqLow` | `number` | EQ Low |
 | `filterColor` | `number` | フィルターカラー |
+| `send` | `number` | センドレベル |
+| `cueA` | `number` | CUE A |
+| `cueB` | `number` | CUE B |
+| `crossfaderAssign` | `number` | クロスフェーダーアサイン |
 
 ---
 

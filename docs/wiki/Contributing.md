@@ -54,7 +54,7 @@ Git hookをlefthookで管理している。`npx lefthook install`で有効化さ
 | markdownlint | `**/*.{md,MD}` (`CHANGELOG.md`除外) | markdownlint |
 | textlint | `docs/wiki/**/*.md` | textlint |
 | actionlint | `.github/workflows/*.{yml,yaml}` | GitHub Actionsのlint |
-| zizmor | `.github/{workflows,dependabot.yml}` | GitHub Actionsのセキュリティチェック |
+| zizmor | `.github/{workflows/*.{yml,yaml},dependabot.yml}` | GitHub Actionsのセキュリティチェック |
 | lefthook | `lefthook.yml` | lefthook設定のバリデーション |
 | changeset-validate | `.changeset/*.md` | changesetファイルのバリデーション |
 
