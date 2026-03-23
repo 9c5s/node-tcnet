@@ -14,7 +14,10 @@
     "types": "dist/index.d.ts",
     "homepage": "https://github.com/9c5s/node-tcnet#readme",
     "license": "MIT",
-    "repository": "github:9c5s/node-tcnet",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/9c5s/node-tcnet.git"
+    },
     "files": [
         "/dist"
     ],
