@@ -25,29 +25,63 @@ describe("MultiPacketAssembler", () => {
     });
 
     it("複数パケットを順序通りに組み立てる", () => {
+        // Arrange
         const assembler = new MultiPacketAssembler();
         const buf0 = createMultiPacketBuffer(3, 0, 4, [10, 11, 12, 13]);
         const buf1 = createMultiPacketBuffer(3, 1, 4, [20, 21, 22, 23]);
         const buf2 = createMultiPacketBuffer(3, 2, 4, [30, 31, 32, 33]);
-        expect(assembler.add(buf0)).toBe(false);
-        expect(assembler.add(buf1)).toBe(false);
-        expect(assembler.add(buf2)).toBe(true);
+
+        // Act
+        assembler.add(buf0);
+        assembler.add(buf1);
+        assembler.add(buf2);
         const result = assembler.assemble();
+
+        // Assert
         expect(result.length).toBe(12);
         expect(result.readUInt8(0)).toBe(10);
         expect(result.readUInt8(4)).toBe(20);
         expect(result.readUInt8(8)).toBe(30);
     });
 
+    it("add() は最後のパケットでのみ true を返す", () => {
+        // Arrange
+        const assembler = new MultiPacketAssembler();
+        const buf0 = createMultiPacketBuffer(3, 0, 4, [10, 11, 12, 13]);
+        const buf1 = createMultiPacketBuffer(3, 1, 4, [20, 21, 22, 23]);
+        const buf2 = createMultiPacketBuffer(3, 2, 4, [30, 31, 32, 33]);
+
+        // 状態遷移テスト: 各 add() の完了/未完了フラグを順に検証する
+        expect(assembler.add(buf0)).toBe(false);
+        expect(assembler.add(buf1)).toBe(false);
+        expect(assembler.add(buf2)).toBe(true);
+    });
+
     it("順序がバラバラでも正しく組み立てる", () => {
+        // Arrange
         const assembler = new MultiPacketAssembler();
         const buf0 = createMultiPacketBuffer(2, 0, 4, [10, 11, 12, 13]);
         const buf1 = createMultiPacketBuffer(2, 1, 4, [20, 21, 22, 23]);
-        expect(assembler.add(buf1)).toBe(false);
-        expect(assembler.add(buf0)).toBe(true);
+
+        // Act: 到着順序を逆にして追加する
+        assembler.add(buf1);
+        assembler.add(buf0);
         const result = assembler.assemble();
+
+        // Assert
         expect(result.readUInt8(0)).toBe(10);
         expect(result.readUInt8(4)).toBe(20);
+    });
+
+    it("add() は受信順によらず最後の 1 枚で true を返す", () => {
+        // Arrange
+        const assembler = new MultiPacketAssembler();
+        const buf0 = createMultiPacketBuffer(2, 0, 4, [10, 11, 12, 13]);
+        const buf1 = createMultiPacketBuffer(2, 1, 4, [20, 21, 22, 23]);
+
+        // 状態遷移テスト: 到着順が逆でも 2 枚目で完了フラグが立つ
+        expect(assembler.add(buf1)).toBe(false);
+        expect(assembler.add(buf0)).toBe(true);
     });
 
     it("reset() で状態がクリアされる", () => {
@@ -74,16 +108,40 @@ describe("MultiPacketAssembler", () => {
         expect(assembler.add(buf)).toBe(false);
     });
 
-    it("totalPackets が変わったパケットを無視する", () => {
+    it("totalPackets が変わったパケットを無視して正しく組み立てる", () => {
+        // Arrange
         const assembler = new MultiPacketAssembler();
-        const buf1 = createMultiPacketBuffer(3, 0, 4, [10, 11, 12, 13]);
+        const buf0 = createMultiPacketBuffer(3, 0, 4, [10, 11, 12, 13]);
         const badBuf = createMultiPacketBuffer(5, 1, 4, [20, 21, 22, 23]); // totalPackets不一致
-        const buf2 = createMultiPacketBuffer(3, 1, 4, [30, 31, 32, 33]);
-        const buf3 = createMultiPacketBuffer(3, 2, 4, [40, 41, 42, 43]);
+        const buf1 = createMultiPacketBuffer(3, 1, 4, [30, 31, 32, 33]);
+        const buf2 = createMultiPacketBuffer(3, 2, 4, [40, 41, 42, 43]);
 
-        expect(assembler.add(buf1)).toBe(false);
+        // Act: totalPackets不一致のパケットを混入させて追加する
+        assembler.add(buf0);
+        assembler.add(badBuf);
+        assembler.add(buf1);
+        assembler.add(buf2);
+        const result = assembler.assemble();
+
+        // Assert: 不正パケットが無視され、正規の 3 パケットが組み立てられる
+        expect(result.length).toBe(12);
+        expect(result.readUInt8(0)).toBe(10);
+        expect(result.readUInt8(4)).toBe(30);
+        expect(result.readUInt8(8)).toBe(40);
+    });
+
+    it("totalPackets 不一致のパケットは add() が false を返して完了しない", () => {
+        // Arrange
+        const assembler = new MultiPacketAssembler();
+        const buf0 = createMultiPacketBuffer(3, 0, 4, [10, 11, 12, 13]);
+        const badBuf = createMultiPacketBuffer(5, 1, 4, [20, 21, 22, 23]); // totalPackets不一致
+        const buf1 = createMultiPacketBuffer(3, 1, 4, [30, 31, 32, 33]);
+        const buf2 = createMultiPacketBuffer(3, 2, 4, [40, 41, 42, 43]);
+
+        // 状態遷移テスト: 不正パケットは無視され、3 枚目の正規パケットで完了する
+        expect(assembler.add(buf0)).toBe(false);
         expect(assembler.add(badBuf)).toBe(false); // 無視される
-        expect(assembler.add(buf2)).toBe(false);
-        expect(assembler.add(buf3)).toBe(true); // 3パケット揃った
+        expect(assembler.add(buf1)).toBe(false);
+        expect(assembler.add(buf2)).toBe(true); // 3パケット揃った
     });
 });
