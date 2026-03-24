@@ -31,3 +31,6 @@ docs/superpowers
 .turbo/
 
 *.tsbuildinfo
+
+# TypeDoc output
+docs-dist/

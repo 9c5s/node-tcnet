@@ -3,6 +3,7 @@
         // Output related
         "target": "ES2022",
         "declaration": true,
+        "stripInternal": true,
 
         // Module resolution
         "moduleResolution": "NodeNext",

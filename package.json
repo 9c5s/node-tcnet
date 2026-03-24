@@ -22,6 +22,8 @@
         "/dist"
     ],
     "scripts": {
+        "docs": "typedoc",
+        "docs:watch": "typedoc --watch",
         "test": "vitest run",
         "test:watch": "vitest",
         "example": "node --import tsx examples",
