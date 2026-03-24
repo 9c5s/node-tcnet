@@ -10,6 +10,7 @@ import type {
     MixerData,
 } from "./types";
 
+/** TCNetメッセージタイプの列挙 */
 export enum TCNetMessageType {
     OptIn = 2,
     OptOut = 3,
@@ -26,6 +27,7 @@ export enum TCNetMessageType {
     Time = 254,
 }
 
+/** TCNetデータパケットタイプの列挙 */
 export enum TCNetDataPacketType {
     MetricsData = 2,
     MetaData = 4,
@@ -36,6 +38,7 @@ export enum TCNetDataPacketType {
     MixerData = 150,
 }
 
+/** TCNetノードタイプの列挙 */
 export enum NodeType {
     Auto = 1,
     Master = 2,
@@ -43,11 +46,13 @@ export enum NodeType {
     Repeater = 8,
 }
 
+/** パケットの読み書きインタフェース */
 interface TCNetReaderWriter {
     read(): void;
     write(): void;
 }
 
+/** TCNetパケットの抽象基底クラス */
 export abstract class TCNetPacket implements TCNetReaderWriter {
     buffer: Buffer;
     header: TCNetManagementHeader;
@@ -58,6 +63,7 @@ export abstract class TCNetPacket implements TCNetReaderWriter {
     abstract type(): number;
 }
 
+/** TCNet管理ヘッダー (全パケット共通の24バイトヘッダー) */
 export class TCNetManagementHeader implements TCNetReaderWriter {
     static MAJOR_VERSION = 3;
     static MAGIC_HEADER = "TCN";
@@ -77,6 +83,7 @@ export class TCNetManagementHeader implements TCNetReaderWriter {
         this.buffer = buffer;
     }
 
+    /** バッファからヘッダーを読み取る */
     public read(): void {
         this.nodeId = this.buffer.readUInt16LE(0);
 
@@ -92,6 +99,7 @@ export class TCNetManagementHeader implements TCNetReaderWriter {
         this.timestamp = this.buffer.readUInt32LE(20);
     }
 
+    /** ヘッダーをバッファに書き込む */
     public write(): void {
         assert(Buffer.from(this.nodeName, "ascii").length <= 8);
 
@@ -173,6 +181,7 @@ export class TCNetOptOutPacket extends TCNetPacket {
     }
 }
 
+/** TCNetレイヤーの再生状態を表す列挙 */
 export enum TCNetLayerStatus {
     IDLE = 0,
     PLAYING = 3,
@@ -255,6 +264,7 @@ export class TCNetRequestPacket extends TCNetPacket {
     }
 }
 
+/** TCNetタイムコードの状態を表す列挙 */
 export enum TCNetTimecodeState {
     Stopped = 0,
     Running = 1,
@@ -279,6 +289,7 @@ export class TCNetTimecode {
     }
 }
 
+/** Timeパケットの1レイヤー分のデータ */
 export type TCNetTimePacketLayer = {
     currentTimeMillis: number;
     totalTimeMillis: number;
@@ -354,6 +365,7 @@ export class TCNetDataPacket extends TCNetPacket {
     }
 }
 
+/** TCNetレイヤーの同期マスター状態を表す列挙 */
 export enum TCNetLayerSyncMaster {
     Slave = 0,
     Master = 1,
@@ -616,26 +628,29 @@ export class TCNetDataPacketBigWaveForm extends TCNetDataPacket {
     }
 }
 
+/** コンストラクタを持つ型の汎用インタフェース */
 export interface Constructable<T> {
     new (...args: unknown[]): T;
 }
 
+/** メッセージタイプからパケットクラスへのマッピング */
 export const TCNetPackets: Record<TCNetMessageType, Constructable<TCNetPacket> | null> = {
     [TCNetMessageType.OptIn]: TCNetOptInPacket,
     [TCNetMessageType.OptOut]: TCNetOptOutPacket,
     [TCNetMessageType.Status]: TCNetStatusPacket,
-    [TCNetMessageType.TimeSync]: null, // not yet implemented
-    [TCNetMessageType.Error]: null, // not yet implemented
+    [TCNetMessageType.TimeSync]: null, // 未実装
+    [TCNetMessageType.Error]: null, // 未実装
     [TCNetMessageType.Request]: TCNetRequestPacket,
-    [TCNetMessageType.ApplicationData]: null, // not yet implemented
-    [TCNetMessageType.Control]: null, // not yet implemented
-    [TCNetMessageType.Text]: null, // not yet implemented
-    [TCNetMessageType.Keyboard]: null, // not yet implemented
+    [TCNetMessageType.ApplicationData]: null, // 未実装
+    [TCNetMessageType.Control]: null, // 未実装
+    [TCNetMessageType.Text]: null, // 未実装
+    [TCNetMessageType.Keyboard]: null, // 未実装
     [TCNetMessageType.Data]: TCNetDataPacket,
-    [TCNetMessageType.File]: null, // not yet implemented
+    [TCNetMessageType.File]: null, // 未実装
     [TCNetMessageType.Time]: TCNetTimePacket,
 };
 
+/** データパケットタイプからデータパケットクラスへのマッピング */
 export const TCNetDataPackets: Record<TCNetDataPacketType, typeof TCNetDataPacket | null> = {
     [TCNetDataPacketType.MetricsData]: TCNetDataPacketMetrics,
     [TCNetDataPacketType.MetaData]: TCNetDataPacketMetadata,
