@@ -41,6 +41,15 @@ export default [
         },
     },
     {
-        ignores: ["**/*.d.ts", "dist/**", "node_modules/**", "examples/**", "tests/**"],
+        ignores: [
+            "**/*.d.ts",
+            "dist/**",
+            "node_modules/**",
+            "examples/**",
+            "tests/**",
+            ".tmp/**",
+            "scripts/**",
+            ".*.js",
+        ],
     },
 ];
