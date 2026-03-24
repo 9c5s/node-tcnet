@@ -21,7 +21,10 @@
 | `broadcastInterface` | `string \| null` | `null` | ブロードキャスト送信に使うNICの名前。`broadcastAddress`がデフォルト値(`"255.255.255.255"`)の場合のみ自動計算する |
 | `broadcastAddress` | `string` | `"255.255.255.255"` | ブロードキャスト送信先アドレス |
 | `broadcastListeningAddress` | `string` | `""` (実行時に`"0.0.0.0"`へ) | ブロードキャスト受信バインドアドレス |
-| `requestTimeout` | `number` | `2000` | リクエストタイムアウト(ms)。接続待ちにも使われる |
+| `requestTimeout` | `number` | `2000` | データリクエストのタイムアウト(ms)。`switchAdapter()`の各接続試行タイムアウトにも使用される |
+| `detectionTimeout` | `number` | `5000` | アダプタ自動検出タイムアウト(ms)。タイムアウト時に`detectionTimeout`イベントを発火する。`0`で無効化 |
+| `switchRetryCount` | `number` | `3` | `switchAdapter()`のリトライ回数 |
+| `switchRetryInterval` | `number` | `1000` | `switchAdapter()`のリトライ間隔(ms) |
 
 ---
 
@@ -37,6 +40,13 @@ new TCNetClient(config?: TCNetConfiguration)
 
 `config`を省略するとデフォルト設定で動作する。
 
+### プロパティ
+
+| プロパティ | 型 | 説明 |
+| --- | --- | --- |
+| `selectedAdapter` | `NetworkAdapterInfo \| null` | 確定済みのアダプタ情報。未確定の場合は`null` |
+| `isConnected` | `boolean` | Masterを検出済みかどうか |
+
 ### メソッド
 
 #### connect
@@ -45,8 +55,12 @@ new TCNetClient(config?: TCNetConfiguration)
 connect(): Promise<void>
 ```
 
-ブロードキャスト(60000)、タイムスタンプ(60001)、ユニキャストの3ソケットをバインドし、OptInパケットの送信を開始する。
-Masterからの応答を受信すると解決する。`requestTimeout`以内に応答がなければ例外を投げる。
+システム上の全non-internal IPv4アダプタに対してブロードキャスト(60000)・タイムスタンプ(60001)ソケットを作成し、OptInパケットの送信を開始した後、即座にresolveする。
+
+- いずれかのアダプタでMaster OptInを検出した時点でそのアダプタに収束し、他アダプタのソケットを閉じる
+- アダプタ収束時に`adapterSelected`イベントを発火する
+- `detectionTimeout`ms以内に検出されない場合は`detectionTimeout`イベントを発火するが、listenは継続する
+- non-internal IPv4アダプタが存在しない場合は例外を投げる
 
 #### disconnect
 
@@ -55,6 +69,21 @@ disconnect(): Promise<void>
 ```
 
 全ソケットを閉じ、イベントリスナーを全て除去する。
+
+#### switchAdapter
+
+```ts
+switchAdapter(interfaceName: string): Promise<void>
+```
+
+接続中のアダプタを指定したネットワークインターフェースに切り替える。
+
+- 既存のpendingリクエストを全て`"Connection switching"`エラーでrejectする
+- 現在のソケットを閉じ、指定アダプタのみで再接続する
+- `config.switchRetryCount`回リトライし、全て失敗した場合は例外を投げる
+- 成功時に`adapterSelected`イベントを発火する
+- `interfaceName`が存在しない、またはIPv4アドレスを持たない場合は即座に例外を投げる
+- 切り替え中は`sendServer()`・`requestData()`・`broadcastPacket()`が例外を投げる
 
 #### requestData
 
@@ -94,6 +123,8 @@ sendServer(packet: TCNetPacket): Promise<void>
 | `"broadcast"` | `TCNetPacket` | ブロードキャストポートでパケットを受信したとき。OptIn、OptOut、Status等が届く |
 | `"data"` | `TCNetDataPacket` | ユニキャストポートでDataパケットを受信したとき。Metrics、MetaData等が届く |
 | `"time"` | `TCNetTimePacket` | タイムスタンプポート(60001)でTimeパケットを受信したとき |
+| `"adapterSelected"` | `NetworkAdapterInfo` | アダプタが確定したとき。`connect()`でのMaster検出時と`switchAdapter()`成功時に発火する |
+| `"detectionTimeout"` | なし | `connect()`後、`detectionTimeout`ms以内にMasterを検出できなかったとき。listenは継続する |
 
 ---
 
@@ -233,7 +264,7 @@ Dataパケットの基底クラス。
 | `loopOutTime` | `number` | ループアウト時間(ms) |
 | `cues` | `CuePoint[]` | CUEポイントの配列(最大18個、type=0のスロットは除外) |
 
-`CuePoint`の構造:
+`CuePoint`の構造は以下の通りである。
 
 | フィールド | 型 | 説明 |
 | --- | --- | --- |
@@ -255,13 +286,13 @@ Dataパケットの基底クラス。
 
 `data`プロパティを持つ(`WaveformData | null`)。
 
-`WaveformData`の構造:
+`WaveformData`の構造は以下の通りである。
 
 | フィールド | 型 | 説明 |
 | --- | --- | --- |
 | `bars` | `WaveformBar[]` | 波形バーの配列 |
 
-`WaveformBar`の構造:
+`WaveformBar`の構造は以下の通りである。
 
 | フィールド | 型 | 説明 |
 | --- | --- | --- |
@@ -274,13 +305,13 @@ Dataパケットの基底クラス。
 
 `data`プロパティを持つ(`BeatGridData | null`)。
 
-`BeatGridData`の構造:
+`BeatGridData`の構造は以下の通りである。
 
 | フィールド | 型 | 説明 |
 | --- | --- | --- |
 | `entries` | `BeatGridEntry[]` | ビートグリッドエントリの配列(beatNumber=0かつtimestampMs=0のエントリは除外) |
 
-`BeatGridEntry`の構造:
+`BeatGridEntry`の構造は以下の通りである。
 
 | フィールド | 型 | 説明 |
 | --- | --- | --- |
@@ -294,7 +325,7 @@ Dataパケットの基底クラス。
 
 `data`プロパティを持つ(`MixerData | null`)。
 
-`MixerData`の構造:
+`MixerData`の構造は以下の通りである。
 
 | フィールド | 型 | 説明 |
 | --- | --- | --- |
@@ -323,7 +354,7 @@ Dataパケットの基底クラス。
 | `boothLevel` | `number` | ブースレベル |
 | `channels` | `MixerChannel[]` | 6チャンネルの配列 |
 
-`MixerChannel`の構造:
+`MixerChannel`の構造は以下の通りである。
 
 | フィールド | 型 | 説明 |
 | --- | --- | --- |
@@ -341,6 +372,49 @@ Dataパケットの基底クラス。
 | `cueA` | `number` | CUE A |
 | `cueB` | `number` | CUE B |
 | `crossfaderAssign` | `number` | クロスフェーダーアサイン |
+
+---
+
+## ネットワークアダプタ
+
+### listNetworkAdapters
+
+```ts
+listNetworkAdapters(): NetworkAdapterInfo[]
+```
+
+`os.networkInterfaces()`をラップし、フィルタなしで全アダプタの情報を返す。
+
+### findIPv4Address
+
+```ts
+findIPv4Address(adapter: NetworkAdapterInfo): NetworkAdapterAddress | undefined
+```
+
+指定アダプタからnon-internalなIPv4アドレスを返す。該当なしの場合`undefined`を返す。
+
+### NetworkAdapterInfo
+
+ネットワークアダプタの情報を表す型。
+
+| プロパティ | 型 | 説明 |
+| --- | --- | --- |
+| `name` | `string` | アダプタ名 |
+| `addresses` | `NetworkAdapterAddress[]` | アダプタに割り当てられたアドレスの配列 |
+
+### NetworkAdapterAddress
+
+アダプタに割り当てられた1つのアドレス情報を表す型。
+
+| プロパティ | 型 | 説明 |
+| --- | --- | --- |
+| `address` | `string` | IPアドレス |
+| `netmask` | `string` | サブネットマスク |
+| `family` | `"IPv4" \| "IPv6"` | アドレスファミリ |
+| `mac` | `string` | MACアドレス |
+| `internal` | `boolean` | ループバックアダプタかどうか |
+| `cidr` | `string \| null` | CIDR表記のアドレス |
+| `scopeid` | `number` (省略可) | IPv6スコープID(IPv6の場合のみ存在) |
 
 ---
 
