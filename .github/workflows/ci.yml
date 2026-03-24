@@ -38,11 +38,11 @@ jobs:
       - name: ビルド
         run: npm run build
 
-      - name: ドキュメントビルド
-        run: npm run docs
-
       - name: Lint
         run: npm run lint
 
       - name: フォーマットチェック
         run: npm run format:check
+
+      - name: ドキュメントビルド
+        run: npm run docs
