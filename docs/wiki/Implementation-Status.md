@@ -66,6 +66,35 @@ PR #2で修正された6件のプロトコル実装バグの概要を示す。
 
 BUG-2の修正はBUG-4, BUG-5と連鎖している。修正前のWindows環境ではBUG-2(broadcastAddress=IP)がユニキャスト的に動作することで、BUG-4(broadcast未検出)とBUG-5(送信ソケット)の問題を隠蔽していた。
 
+## ネットワークアダプタ自動検出・切り替え
+
+### 実装済み機能
+
+| 機能 | 説明 |
+|------|------|
+| `listNetworkAdapters()` | `os.networkInterfaces()`をラップし全アダプタ情報を返す |
+| `connect()` マルチアダプタ検出 | 全non-internal IPv4アダプタにソケットを作成し、即座にresolve。Master OptIn検出で収束する |
+| `TCNetClient.selectedAdapter` | 確定済みアダプタ情報(`null`=未確定) |
+| `TCNetClient.isConnected` | Master検出済みフラグ |
+| `switchAdapter(interfaceName)` | 手動アダプタ切り替え。リトライ付き |
+| `adapterSelected`イベント | アダプタ確定時に`NetworkAdapterInfo`をペイロードとして発火 |
+| `detectionTimeout`イベント | `detectionTimeout`ms以内にMasterを検出できなかった場合に発火 |
+
+### 設定項目
+
+| プロパティ | デフォルト | 説明 |
+|------------|-----------|------|
+| `TCNetConfiguration.detectionTimeout` | `5000` | 検出タイムアウト(ms)。`0`で無効化 |
+| `TCNetConfiguration.switchRetryCount` | `3` | `switchAdapter()`のリトライ回数 |
+| `TCNetConfiguration.switchRetryInterval` | `1000` | リトライ間隔(ms) |
+
+### 動作仕様
+
+- `connect()`はnon-internal IPv4アダプタが見つかった時点で即resolveする(Masterの検出を待たない)
+- 複数アダプタが存在する場合、最初にMaster OptInを受信したアダプタに収束し、他のアダプタのソケットを閉じる
+- `switchAdapter()`はpendingリクエストを全てrejectし、ソケットを再作成してMaster検出を待つ
+- 切り替え中(`_switching=true`)は`sendServer()`・`requestData()`・`broadcastPacket()`が例外を投げる
+
 ## 関連ページ
 
 Bridge固有の制限は[[PRO DJ LINK Bridge]]を参照。
