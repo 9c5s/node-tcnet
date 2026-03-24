@@ -264,7 +264,7 @@ describe("switchAdapter() 切り替えロジック", () => {
         expect(client.listenerCount("broadcast")).toBe(1);
     });
 
-    it("_switching中にsendServer()がエラー", async () => {
+    it("switching中にsendServer()がエラー", async () => {
         const client = new TestTCNetClient();
         client.initMockSockets();
         client.setConnected(true);
@@ -278,7 +278,7 @@ describe("switchAdapter() 切り替えロジック", () => {
         await switchPromise;
     });
 
-    it("_switching中にrequestData()がエラー", async () => {
+    it("switching中にrequestData()がエラー", async () => {
         const client = new TestTCNetClient();
         client.initMockSockets();
         client.setConnected(true);

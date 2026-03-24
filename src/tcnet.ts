@@ -2,7 +2,7 @@ import { Socket, createSocket, RemoteInfo } from "dgram";
 import EventEmitter = require("events");
 import * as nw from "./network";
 import { MultiPacketAssembler } from "./multi-packet";
-import { interfaceAddress, listNetworkAdapters, type NetworkAdapterInfo } from "./utils";
+import { interfaceAddress, listNetworkAdapters, findIPv4Address, type NetworkAdapterInfo } from "./utils";
 
 const TCNET_BROADCAST_PORT = 60000;
 const TCNET_TIMESTAMP_PORT = 60001;
@@ -38,7 +38,9 @@ export class TCNetConfiguration {
     switchRetryInterval = 1000;
 }
 
-const closeSocket = (socket: Socket): Promise<void> => new Promise((resolve) => socket.close(() => resolve()));
+function closeSocket(socket: Socket): Promise<void> {
+    return new Promise((resolve) => socket.close(() => resolve()));
+}
 
 /**
  * Low level implementation of the TCNet protocol
@@ -54,13 +56,15 @@ export class TCNetClient extends EventEmitter {
     private connected = false;
     private connectedHandler: (() => void) | null = null;
     private requests: Map<string, STORED_REQUEST> = new Map();
-    private announcementInterval: NodeJS.Timeout;
+    private announcementInterval: NodeJS.Timeout | null = null;
     private broadcastSockets: Map<string, Socket> = new Map();
     private timestampSockets: Map<string, Socket> = new Map();
+    private adapterMap: Map<string, NetworkAdapterInfo> = new Map();
     private _selectedAdapter: NetworkAdapterInfo | null = null;
-    private _switching = false;
-    private _connectTimeoutId: NodeJS.Timeout | null = null;
-    private _detectionTimeoutId: NodeJS.Timeout | null = null;
+    private switching = false;
+    private connectTimeoutId: NodeJS.Timeout | null = null;
+    private detectionTimeoutId: NodeJS.Timeout | null = null;
+    private detectingAdapter = false;
 
     /**
      *
@@ -117,43 +121,55 @@ export class TCNetClient extends EventEmitter {
         }
 
         // non-internal + IPv4アダプタを取得
-        const adapters = listNetworkAdapters().filter((a) =>
-            a.addresses.some((addr) => addr.family === "IPv4" && !addr.internal),
-        );
+        const adapters = listNetworkAdapters().filter((a) => findIPv4Address(a) !== undefined);
         if (adapters.length === 0) {
             throw new Error("No non-internal IPv4 network adapters found");
         }
 
-        // unicastソケット (1つだけ)
-        this.unicastSocket = createSocket({ type: "udp4", reuseAddr: false }, this.receiveUnicast.bind(this));
-        await this.bindSocket(this.unicastSocket, this.config.unicastPort, "0.0.0.0");
+        this.detectingAdapter = true;
 
-        // 各アダプタにbroadcast/timestampソケットを作成
-        for (const adapter of adapters) {
-            const ipv4 = adapter.addresses.find((a) => a.family === "IPv4" && !a.internal);
-            if (!ipv4) continue;
+        try {
+            // unicastソケット (1つだけ)
+            this.unicastSocket = createSocket({ type: "udp4", reuseAddr: false }, this.receiveUnicast.bind(this));
+            await this.bindSocket(this.unicastSocket, this.config.unicastPort, "0.0.0.0");
 
-            const bSocket = createSocket({ type: "udp4", reuseAddr: true }, (msg: Buffer, rinfo: RemoteInfo) =>
-                this.receiveBroadcast(msg, rinfo, adapter.name),
-            );
-            await this.bindSocket(bSocket, TCNET_BROADCAST_PORT, ipv4.address);
-            bSocket.setBroadcast(true);
-            this.broadcastSockets.set(adapter.name, bSocket);
+            // 各アダプタにbroadcast/timestampソケットを作成
+            for (const adapter of adapters) {
+                const ipv4 = findIPv4Address(adapter);
+                if (!ipv4) continue;
 
-            const tSocket = createSocket({ type: "udp4", reuseAddr: true }, this.receiveTimestamp.bind(this));
-            await this.bindSocket(tSocket, TCNET_TIMESTAMP_PORT, ipv4.address);
-            tSocket.setBroadcast(true);
-            this.timestampSockets.set(adapter.name, tSocket);
+                this.adapterMap.set(adapter.name, adapter);
+
+                const bSocket = createSocket({ type: "udp4", reuseAddr: true }, (msg: Buffer, rinfo: RemoteInfo) =>
+                    this.receiveBroadcast(msg, rinfo, adapter.name),
+                );
+                await this.bindSocket(bSocket, TCNET_BROADCAST_PORT, ipv4.address);
+                bSocket.setBroadcast(true);
+                this.broadcastSockets.set(adapter.name, bSocket);
+
+                const tSocket = createSocket({ type: "udp4", reuseAddr: true }, this.receiveTimestamp.bind(this));
+                await this.bindSocket(tSocket, TCNET_TIMESTAMP_PORT, ipv4.address);
+                tSocket.setBroadcast(true);
+                this.timestampSockets.set(adapter.name, tSocket);
+            }
+        } catch (err) {
+            await this.disconnectSockets();
+            throw err;
         }
 
         // OptIn送信開始 (全アダプタ)
         await this.announceApp();
-        this.announcementInterval = setInterval(this.announceApp.bind(this), 1000);
+        this.announcementInterval = setInterval(() => {
+            this.announceApp().catch((err) => {
+                const error = err instanceof Error ? err : new Error(String(err));
+                this.log?.error(error);
+            });
+        }, 1000);
 
         // 検出タイムアウト
         if (this.config.detectionTimeout > 0) {
-            this._detectionTimeoutId = setTimeout(() => {
-                this._detectionTimeoutId = null;
+            this.detectionTimeoutId = setTimeout(() => {
+                this.detectionTimeoutId = null;
                 if (!this.connected) {
                     this.emit("detectionTimeout");
                 }
@@ -166,16 +182,21 @@ export class TCNetClient extends EventEmitter {
      * switchAdapter() のようにリスナーを維持したまま切断する場合に使用する
      */
     private async disconnectSockets(): Promise<void> {
-        clearInterval(this.announcementInterval);
+        if (this.announcementInterval) {
+            clearInterval(this.announcementInterval);
+            this.announcementInterval = null;
+        }
         this.connected = false;
         this._selectedAdapter = null;
-        if (this._connectTimeoutId) {
-            clearTimeout(this._connectTimeoutId);
-            this._connectTimeoutId = null;
+        this.server = null;
+        this.detectingAdapter = false;
+        if (this.connectTimeoutId) {
+            clearTimeout(this.connectTimeoutId);
+            this.connectTimeoutId = null;
         }
-        if (this._detectionTimeoutId) {
-            clearTimeout(this._detectionTimeoutId);
-            this._detectionTimeoutId = null;
+        if (this.detectionTimeoutId) {
+            clearTimeout(this.detectionTimeoutId);
+            this.detectionTimeoutId = null;
         }
         this.connectedHandler = null;
 
@@ -188,6 +209,7 @@ export class TCNetClient extends EventEmitter {
         }
         this.broadcastSockets.clear();
         this.timestampSockets.clear();
+        this.adapterMap.clear();
 
         if (this.broadcastSocket) {
             closePromises.push(closeSocket(this.broadcastSocket));
@@ -214,7 +236,7 @@ export class TCNetClient extends EventEmitter {
      * ソケットを閉じ、全リスナーを削除する
      */
     public async disconnect(): Promise<void> {
-        this._switching = false;
+        this.switching = false;
         await this.disconnectSockets();
         this.removeAllListeners();
     }
@@ -226,13 +248,14 @@ export class TCNetClient extends EventEmitter {
         return new Promise((resolve, reject) => {
             this.connectedHandler = resolve;
 
-            this._connectTimeoutId = setTimeout(() => {
-                this._connectTimeoutId = null;
-                if (!this.connected) {
-                    this.disconnectSockets();
-                    reject(new Error("Timeout connecting to network"));
-                }
-            }, this.config.requestTimeout);
+            if (this.config.detectionTimeout > 0) {
+                this.connectTimeoutId = setTimeout(() => {
+                    this.connectTimeoutId = null;
+                    if (!this.connected) {
+                        reject(new Error("Timeout connecting to network"));
+                    }
+                }, this.config.detectionTimeout);
+            }
         });
     }
 
@@ -242,17 +265,19 @@ export class TCNetClient extends EventEmitter {
     private async convergeToAdapter(adapterName: string, rinfo: RemoteInfo, listenerPort: number): Promise<void> {
         if (this.connected) return; // first wins
 
-        const adapter = listNetworkAdapters().find((a) => a.name === adapterName);
+        const adapter = this.adapterMap.get(adapterName);
         if (!adapter) return;
 
         this._selectedAdapter = adapter;
+        this.config.broadcastAddress = interfaceAddress(adapterName);
         this.server = rinfo;
         this.server.port = listenerPort;
+        this.detectingAdapter = false;
         this.connected = true;
 
-        if (this._detectionTimeoutId) {
-            clearTimeout(this._detectionTimeoutId);
-            this._detectionTimeoutId = null;
+        if (this.detectionTimeoutId) {
+            clearTimeout(this.detectionTimeoutId);
+            this.detectionTimeoutId = null;
         }
 
         // 確定アダプタのソケットを単一変数に移行
@@ -269,6 +294,7 @@ export class TCNetClient extends EventEmitter {
         }
         this.broadcastSockets.clear();
         this.timestampSockets.clear();
+        this.adapterMap.clear();
 
         await Promise.all(closePromises).catch((err) => {
             this.log?.debug(`Error closing non-selected sockets: ${err}`);
@@ -285,7 +311,7 @@ export class TCNetClient extends EventEmitter {
         const adapter = listNetworkAdapters().find((a) => a.name === adapterName);
         if (!adapter) throw new Error(`Interface ${adapterName} does not exist`);
 
-        const ipv4 = adapter.addresses.find((a) => a.family === "IPv4" && !a.internal);
+        const ipv4 = findIPv4Address(adapter);
         if (!ipv4) throw new Error(`Interface ${adapterName} does not have IPv4 address`);
 
         const broadcastAddr = interfaceAddress(adapterName);
@@ -306,14 +332,20 @@ export class TCNetClient extends EventEmitter {
 
         this.config.broadcastAddress = broadcastAddr;
 
+        // selectedAdapterをwaitConnected前にセットし、resolveまでに値が入るようにする (#13)
+        this._selectedAdapter = adapter;
+
         // OptIn送信開始
         await this.announceApp();
-        this.announcementInterval = setInterval(this.announceApp.bind(this), 1000);
+        this.announcementInterval = setInterval(() => {
+            this.announceApp().catch((err) => {
+                const error = err instanceof Error ? err : new Error(String(err));
+                this.log?.error(error);
+            });
+        }, 1000);
 
         // Master検出を待つ
         await this.waitConnected();
-
-        this._selectedAdapter = adapter;
     }
 
     /**
@@ -363,10 +395,10 @@ export class TCNetClient extends EventEmitter {
         if (packet) {
             if (packet instanceof nw.TCNetOptInPacket) {
                 if (mgmtHeader.nodeType == nw.NodeType.Master) {
-                    if (!this.connected && adapterName) {
+                    if (!this.connected && this.detectingAdapter && adapterName) {
                         // 検出中 (connect()経由): アダプタ収束
                         this.convergeToAdapter(adapterName, rinfo, packet.nodeListenerPort);
-                    } else if (!this.connected && !adapterName) {
+                    } else if (!this.connected && !this.detectingAdapter) {
                         // 単一アダプタ接続中 (connectToAdapter()経由): waitConnected解決
                         this.server = rinfo;
                         this.server.port = packet.nodeListenerPort;
@@ -555,7 +587,7 @@ export class TCNetClient extends EventEmitter {
      * @param packet Packet to send
      */
     public async sendServer(packet: nw.TCNetPacket): Promise<void> {
-        if (this._switching) {
+        if (this.switching) {
             throw new Error("Cannot send while switching adapter");
         }
         if (this.server === null) {
@@ -596,11 +628,13 @@ export class TCNetClient extends EventEmitter {
                 await this.sendServer(optInPacket);
             }
         } else {
-            // 検出中: 全アダプタに送信
-            for (const [name, socket] of this.broadcastSockets) {
-                const broadcastAddr = interfaceAddress(name);
-                await this.sendPacket(optInPacket, socket, TCNET_BROADCAST_PORT, broadcastAddr);
-            }
+            // 検出中: 全アダプタに並列送信
+            await Promise.all(
+                [...this.broadcastSockets.entries()].map(([name, socket]) => {
+                    const broadcastAddr = interfaceAddress(name);
+                    return this.sendPacket(optInPacket, socket, TCNET_BROADCAST_PORT, broadcastAddr);
+                }),
+            );
         }
     }
 
@@ -629,12 +663,11 @@ export class TCNetClient extends EventEmitter {
         if (!adapter) {
             throw new Error(`Interface ${interfaceName} does not exist`);
         }
-        const hasIPv4 = adapter.addresses.some((a) => a.family === "IPv4" && !a.internal);
-        if (!hasIPv4) {
+        if (!findIPv4Address(adapter)) {
             throw new Error(`Interface ${interfaceName} does not have IPv4 address`);
         }
 
-        this._switching = true;
+        this.switching = true;
 
         // pendingリクエストをreject
         for (const [, req] of this.requests) {
@@ -654,25 +687,25 @@ export class TCNetClient extends EventEmitter {
         let lastError: Error | undefined;
         const maxAttempts = 1 + this.config.switchRetryCount;
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
-            if (!this._switching) {
+            if (!this.switching) {
                 throw new Error("Switch interrupted by disconnect");
             }
             try {
                 await this.connectToAdapter(interfaceName);
-                this._switching = false;
+                this.switching = false;
                 this.emit("adapterSelected", adapter);
                 return;
             } catch (err) {
                 lastError = err instanceof Error ? err : new Error(String(err));
                 this.log?.debug(`switchAdapter retry ${attempt + 1}/${maxAttempts} failed: ${lastError.message}`);
-                if (attempt < maxAttempts - 1 && this._switching) {
+                if (attempt < maxAttempts - 1 && this.switching) {
                     await this.disconnectSockets();
                     await new Promise((r) => setTimeout(r, this.config.switchRetryInterval));
                 }
             }
         }
 
-        this._switching = false;
+        this.switching = false;
         throw new Error(`Failed to switch adapter after ${maxAttempts} attempts: ${lastError?.message}`);
     }
 
@@ -685,7 +718,7 @@ export class TCNetClient extends EventEmitter {
      */
     public requestData(dataType: number, layer: number): Promise<nw.TCNetDataPacket> {
         return new Promise((resolve, reject) => {
-            if (this._switching) {
+            if (this.switching) {
                 reject(new Error("Cannot request while switching adapter"));
                 return;
             }

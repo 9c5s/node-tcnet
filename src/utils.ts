@@ -45,6 +45,11 @@ export interface NetworkAdapterInfo {
     addresses: NetworkAdapterAddress[];
 }
 
+// アダプタからnon-internalなIPv4アドレスを検索する
+export function findIPv4Address(adapter: NetworkAdapterInfo): NetworkAdapterAddress | undefined {
+    return adapter.addresses.find((a) => a.family === "IPv4" && !a.internal);
+}
+
 // システム上のネットワークアダプタ一覧を返す
 export function listNetworkAdapters(): NetworkAdapterInfo[] {
     const interfaces = networkInterfaces();
