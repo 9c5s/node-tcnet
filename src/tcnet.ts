@@ -102,11 +102,11 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * Wrapper method to bind a socket with a Promise
-     * @param socket socket to bind
-     * @param port port to bind to
-     * @param address address to bind to
-     * @returns Promise which always resolves (no errors in callback)
+     * ソケットをバインドするPromiseラッパー
+     * @param socket - バインドするソケット
+     * @param port - バインドするポート番号
+     * @param address - バインドするアドレス
+     * @returns バインド完了のPromise
      */
     private bindSocket(socket: Socket, port: number, address: string): Promise<void> {
         return new Promise((resolve, reject) => {
@@ -258,7 +258,8 @@ export class TCNetClient extends EventEmitter {
 
     /**
      * Masterからのユニキャストを待機する
-     * @param timeoutMs タイムアウト(ms)。省略時はdetectionTimeoutを使用
+     * @param timeoutMs - タイムアウト(ms)。省略時はdetectionTimeoutを使用
+     * @returns 接続完了のPromise
      */
     private waitConnected(timeoutMs?: number): Promise<void> {
         return new Promise((resolve, reject) => {
@@ -279,6 +280,9 @@ export class TCNetClient extends EventEmitter {
 
     /**
      * Master検出時に該当アダプタに収束し、他のアダプタのソケットを閉じる
+     * @param adapterName - 収束先のアダプタ名
+     * @param rinfo - Master送信元情報
+     * @param listenerPort - Masterのリスナーポート
      */
     private async convergeToAdapter(adapterName: string, rinfo: RemoteInfo, listenerPort: number): Promise<void> {
         if (this.connected) return; // first wins
@@ -322,8 +326,9 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * 指定アダプタのみにソケットを作成してMaster検出を待つ
+     * 指定アダプタのみにソケットを作成してMaster検出を待つ。
      * switchAdapter()から使用される内部メソッド
+     * @param adapterName - 接続先のアダプタ名
      */
     private async connectToAdapter(adapterName: string): Promise<void> {
         const adapter = listNetworkAdapters().find((a) => a.name === adapterName);
