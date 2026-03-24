@@ -372,9 +372,9 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * Parse a packet from a ManagementHeader
-     * @param header the received management header
-     * @returns the parsed packet
+     * 管理ヘッダーからパケットをパースする
+     * @param header - 受信した管理ヘッダー
+     * @returns パースされたパケット。不正な場合はnull
      */
     private parsePacket(header: nw.TCNetManagementHeader): nw.TCNetPacket | null {
         const packetClass = nw.TCNetPackets[header.messageType];
@@ -405,10 +405,9 @@ export class TCNetClient extends EventEmitter {
 
     /**
      * ブロードキャストソケットのデータグラム受信コールバック
-     *
-     * @param msg データグラムバッファ
-     * @param rinfo 送信元情報
-     * @param adapterName 受信したアダプタ名 (connect()経由の場合のみ設定)
+     * @param msg - データグラムバッファ
+     * @param rinfo - 送信元情報
+     * @param adapterName - 受信したアダプタ名 (connect()経由の場合のみ設定)
      */
     private receiveBroadcast(msg: Buffer, rinfo: RemoteInfo, adapterName?: string): void {
         const mgmtHeader = new nw.TCNetManagementHeader(msg);
@@ -457,10 +456,9 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * Callback method to receive datagrams on the unicast socket
-     *
-     * @param msg datagram buffer
-     * @param rinfo remoteinfo
+     * ユニキャストソケットのデータグラム受信コールバック
+     * @param msg - データグラムバッファ
+     * @param rinfo - 送信元情報
      */
     private receiveUnicast(msg: Buffer, rinfo: RemoteInfo): void {
         const mgmtHeader = new nw.TCNetManagementHeader(msg);
@@ -545,9 +543,9 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * Callback method to receive datagrams on the timestamp socket
-     * @param msg datagram buffer
-     * @param rinfo remoteinfo
+     * タイムスタンプソケットのデータグラム受信コールバック
+     * @param msg - データグラムバッファ
+     * @param _rinfo - 送信元情報 (未使用)
      */
     private receiveTimestamp(msg: Buffer, _rinfo: RemoteInfo): void {
         // アダプタ確定前はtimeイベントを発火しない
@@ -565,9 +563,8 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * Fill headers of a packet
-     *
-     * @param packet Packet that needs header information
+     * パケットにヘッダー情報を設定する
+     * @param packet - ヘッダーを設定するパケット
      */
     private fillHeader(packet: nw.TCNetPacket): void {
         packet.header = new nw.TCNetManagementHeader(packet.buffer);
@@ -583,12 +580,12 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * Generalized method to send packets to a given destination on a given socket
-     *
-     * @param packet Packet to send
-     * @param socket Socket to send on
-     * @param port Destination Port
-     * @param address Destination Address
+     * 指定ソケットで指定宛先にパケットを送信する
+     * @param packet - 送信するパケット
+     * @param socket - 送信に使用するソケット
+     * @param port - 宛先ポート番号
+     * @param address - 宛先アドレス
+     * @returns 送信完了のPromise
      */
     private sendPacket(packet: nw.TCNetPacket, socket: Socket, port: number, address: string): Promise<void> {
         return new Promise((resolve, reject) => {
@@ -606,8 +603,8 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * Sends a packet to the discovered server
-     * @param packet Packet to send
+     * 検出済みサーバーにパケットを送信する
+     * @param packet - 送信するパケット
      */
     public async sendServer(packet: nw.TCNetPacket): Promise<void> {
         if (this.switching) {
@@ -667,9 +664,8 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * Broadcasts a packet to the network
-     *
-     * @param packet packet to broadcast
+     * ネットワークにパケットをブロードキャストする
+     * @param packet - ブロードキャストするパケット
      */
     public async broadcastPacket(packet: nw.TCNetPacket): Promise<void> {
         if (this.switching) {
@@ -682,10 +678,9 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * アダプタを切り替える
+     * アダプタを切り替える。
      * pendingリクエストをrejectし、ソケットを再接続する
-     *
-     * @param interfaceName 切り替え先のネットワークインターフェース名
+     * @param interfaceName - 切り替え先のネットワークインターフェース名
      */
     public async switchAdapter(interfaceName: string): Promise<void> {
         // バリデーション
@@ -741,11 +736,10 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * Sends a request packet to the discovered server
-     *
-     * @param dataType requested data type
-     * @param layer requested layer
-     * @returns Promise to wait for answer on request
+     * 検出済みサーバーにデータリクエストを送信する
+     * @param dataType - 要求するデータタイプ
+     * @param layer - 要求するレイヤー (0-7)
+     * @returns リクエスト応答のPromise
      */
     public requestData(dataType: number, layer: number): Promise<nw.TCNetDataPacket> {
         return new Promise((resolve, reject) => {
