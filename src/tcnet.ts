@@ -16,13 +16,19 @@ type STORED_REQUEST = {
 
 const MULTI_PACKET_TYPES = new Set([nw.TCNetDataPacketType.BigWaveFormData, nw.TCNetDataPacketType.BeatGridData]);
 
-/** TCNetClientが使用するロガーインタフェース */
+/**
+ * TCNetClientが使用するロガーインタフェース
+ * @category Client
+ */
 export type TCNetLogger = {
     error: (error: Error) => void;
     debug: (message: string) => void;
 };
 
-/** TCNetClientの設定 */
+/**
+ * TCNetClientの設定
+ * @category Client
+ */
 export class TCNetConfiguration {
     logger: TCNetLogger | null = null;
     unicastPort = 65023;
@@ -49,7 +55,10 @@ function closeSocket(socket: Socket): Promise<void> {
     return new Promise((resolve) => socket.close(() => resolve()));
 }
 
-/** TCNetプロトコルの低レベル実装 */
+/**
+ * TCNetプロトコルの低レベル実装
+ * @category Client
+ */
 export class TCNetClient extends EventEmitter {
     private config: TCNetConfiguration;
     private broadcastSocket: Socket | null = null;
