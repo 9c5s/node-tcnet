@@ -15,8 +15,8 @@ describe("Bridge未起動テスト", () => {
     it("detectionTimeoutイベントが発火する", async () => {
         const client = createTestClient({ detectionTimeout: 3_000 });
         await client.connect();
-        const event = waitForEvent(client, "detectionTimeout", 5_000);
-        await expect(event).resolves.toBeDefined();
+        // detectionTimeoutイベントは引数なしで発火するため、resolveすること自体を検証する
+        await waitForEvent(client, "detectionTimeout", 5_000);
         await client.disconnect();
     });
 });

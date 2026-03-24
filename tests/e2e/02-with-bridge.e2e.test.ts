@@ -16,7 +16,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
     // テストで起動したBridgeのみ停止する (テスト前から起動済みなら触らない)
-    if (!bridgeInfo.alreadyRunning) {
+    if (bridgeInfo && !bridgeInfo.alreadyRunning) {
         await stopBridge(bridgeInfo.pid);
     }
 });

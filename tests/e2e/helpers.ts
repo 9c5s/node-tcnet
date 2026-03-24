@@ -118,18 +118,28 @@ export async function getBridgePid(): Promise<number> {
 
 /**
  * Bridge起動完了をTCNetプロトコルで検知する
- * @param timeoutMs - タイムアウト(ミリ秒)。デフォルト30秒
+ * Bridgeプロセスの初期化に時間がかかるため、リトライしながら検知する
+ * @param timeoutMs - 全体のタイムアウト(ミリ秒)。デフォルト60秒
  */
-async function waitForBridgeReady(timeoutMs = 30_000): Promise<void> {
-    const client = createTestClient({ detectionTimeout: timeoutMs });
-    try {
-        await client.connect();
-        await waitForEvent(client, "adapterSelected", timeoutMs);
-    } catch {
-        throw new Error(`Bridge started but not responding on TCNet within ${timeoutMs / 1000}s`);
-    } finally {
-        await client.disconnect();
+async function waitForBridgeReady(timeoutMs = 60_000): Promise<void> {
+    const startTime = Date.now();
+    const attemptTimeout = 10_000;
+
+    while (Date.now() - startTime < timeoutMs) {
+        const client = createTestClient({ detectionTimeout: attemptTimeout });
+        try {
+            await client.connect();
+            await waitForEvent(client, "adapterSelected", attemptTimeout);
+            return; // 検知成功
+        } catch {
+            // Bridge初期化中の可能性がある。少し待ってリトライする
+        } finally {
+            await client.disconnect();
+        }
+        await new Promise((r) => setTimeout(r, 2_000));
     }
+
+    throw new Error(`Bridge started but not responding on TCNet within ${timeoutMs / 1000}s`);
 }
 
 /**
