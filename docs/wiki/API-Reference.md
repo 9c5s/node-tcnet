@@ -21,7 +21,7 @@
 | `broadcastInterface` | `string \| null` | `null` | ブロードキャスト送信に使うNICの名前。`broadcastAddress`がデフォルト値(`"255.255.255.255"`)の場合のみ自動計算する |
 | `broadcastAddress` | `string` | `"255.255.255.255"` | ブロードキャスト送信先アドレス |
 | `broadcastListeningAddress` | `string` | `""` (実行時に`"0.0.0.0"`へ) | ブロードキャスト受信バインドアドレス |
-| `requestTimeout` | `number` | `2000` | リクエストタイムアウト(ms)。接続待ちにも使われる |
+| `requestTimeout` | `number` | `2000` | データリクエストのタイムアウト(ms)。`switchAdapter()`の各接続試行タイムアウトにも使用される |
 | `detectionTimeout` | `number` | `5000` | アダプタ自動検出タイムアウト(ms)。タイムアウト時に`detectionTimeout`イベントを発火する。`0`で無効化 |
 | `switchRetryCount` | `number` | `3` | `switchAdapter()`のリトライ回数 |
 | `switchRetryInterval` | `number` | `1000` | `switchAdapter()`のリトライ間隔(ms) |

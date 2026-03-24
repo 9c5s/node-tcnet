@@ -250,19 +250,21 @@ export class TCNetClient extends EventEmitter {
 
     /**
      * Masterからのユニキャストを待機する
+     * @param timeoutMs タイムアウト(ms)。省略時はdetectionTimeoutを使用
      */
-    private waitConnected(): Promise<void> {
+    private waitConnected(timeoutMs?: number): Promise<void> {
         return new Promise((resolve, reject) => {
             this.connectedHandler = resolve;
             this.connectedReject = reject;
 
-            if (this.config.detectionTimeout > 0) {
+            const timeout = timeoutMs ?? this.config.detectionTimeout;
+            if (timeout > 0) {
                 this.connectTimeoutId = setTimeout(() => {
                     this.connectTimeoutId = null;
                     if (!this.connected) {
                         reject(new Error("Timeout connecting to network"));
                     }
-                }, this.config.detectionTimeout);
+                }, timeout);
             }
         });
     }
@@ -352,8 +354,8 @@ export class TCNetClient extends EventEmitter {
             });
         }, 1000);
 
-        // Master検出を待つ
-        await this.waitConnected();
+        // Master検出を待つ (detectionTimeout=0でもhangしないようrequestTimeoutをフォールバック)
+        await this.waitConnected(this.config.requestTimeout);
     }
 
     /**
