@@ -1,4 +1,5 @@
 export { TCNetClient, TCNetConfiguration } from "./tcnet";
+export type { TCNetLogger } from "./tcnet";
 
 export * from "./network";
 export * from "./types";

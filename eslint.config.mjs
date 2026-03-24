@@ -73,6 +73,15 @@ export default [
         },
     },
     {
-        ignores: ["**/*.d.ts", "dist/**", "node_modules/**", ".tmp/**", "scripts/**", ".*.js", ".worktrees/**"],
+        ignores: [
+            "**/*.d.ts",
+            "dist/**",
+            "docs-dist/**",
+            "node_modules/**",
+            ".tmp/**",
+            "scripts/**",
+            ".*.js",
+            ".worktrees/**",
+        ],
     },
 ];
