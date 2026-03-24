@@ -91,7 +91,7 @@ export function listNetworkAdapters(): NetworkAdapterInfo[] {
             addresses: addrs.map((a) => ({
                 address: a.address,
                 netmask: a.netmask,
-                family: a.family as "IPv4" | "IPv6",
+                family: a.family === "IPv4" || a.family === "IPv6" ? a.family : "IPv4",
                 mac: a.mac,
                 internal: a.internal,
                 cidr: a.cidr,

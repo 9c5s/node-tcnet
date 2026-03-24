@@ -887,7 +887,7 @@ export interface Constructable<T> {
  * メッセージタイプからパケットクラスへのマッピング
  * @internal
  */
-export const TCNetPackets: Record<TCNetMessageType, Constructable<TCNetPacket> | null> = {
+export const TCNetPackets = {
     [TCNetMessageType.OptIn]: TCNetOptInPacket,
     [TCNetMessageType.OptOut]: TCNetOptOutPacket,
     [TCNetMessageType.Status]: TCNetStatusPacket,
@@ -901,13 +901,13 @@ export const TCNetPackets: Record<TCNetMessageType, Constructable<TCNetPacket> |
     [TCNetMessageType.Data]: TCNetDataPacket,
     [TCNetMessageType.File]: null, // 未実装
     [TCNetMessageType.Time]: TCNetTimePacket,
-};
+} as const satisfies Record<TCNetMessageType, Constructable<TCNetPacket> | null>;
 
 /**
  * データパケットタイプからデータパケットクラスへのマッピング
  * @internal
  */
-export const TCNetDataPackets: Record<TCNetDataPacketType, typeof TCNetDataPacket | null> = {
+export const TCNetDataPackets = {
     [TCNetDataPacketType.MetricsData]: TCNetDataPacketMetrics,
     [TCNetDataPacketType.MetaData]: TCNetDataPacketMetadata,
     [TCNetDataPacketType.BeatGridData]: TCNetDataPacketBeatGrid,
@@ -915,4 +915,4 @@ export const TCNetDataPackets: Record<TCNetDataPacketType, typeof TCNetDataPacke
     [TCNetDataPacketType.SmallWaveFormData]: TCNetDataPacketSmallWaveForm,
     [TCNetDataPacketType.BigWaveFormData]: TCNetDataPacketBigWaveForm,
     [TCNetDataPacketType.MixerData]: TCNetDataPacketMixer,
-};
+} as const satisfies Record<TCNetDataPacketType, typeof TCNetDataPacket | null>;
