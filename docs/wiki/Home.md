@@ -8,7 +8,7 @@ TCNetは、エンターテイメント業界向けに設計されたオープン
 ## 利用者向け
 
 - [[Getting Started]] -- インストールと基本的な使い方
-- [[API Reference]] -- クラスとメソッドの一覧
+- [API Reference](https://9c5s.github.io/node-tcnet/) -- クラスとメソッドの一覧
 - [[PRO DJ LINK Bridge]] -- Pioneer DJ機器との連携
 
 ## 開発者向け

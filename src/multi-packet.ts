@@ -1,4 +1,7 @@
-/** BigWaveFormとBeatGridのマルチパケットを組み立てるアセンブラ */
+/**
+ * BigWaveFormとBeatGridのマルチパケットを組み立てるアセンブラ
+ * @category Utilities
+ */
 export class MultiPacketAssembler {
     private packets: Map<number, Buffer> = new Map();
     private totalPackets = 0;

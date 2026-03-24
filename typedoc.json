@@ -1,0 +1,30 @@
+{
+    "$schema": "https://typedoc.org/schema.json",
+    "entryPoints": ["src/index.ts"],
+    "entryPointStrategy": "resolve",
+    "tsconfig": "tsconfig.json",
+    "excludePrivate": true,
+    "excludeInternal": true,
+    "out": "docs-dist",
+    "githubPages": true,
+    "readme": "README.MD",
+    "name": "@9c5s/node-tcnet",
+    "hideGenerator": true,
+    "navigation": {
+        "includeCategories": true,
+        "includeGroups": false
+    },
+    "navigationLinks": {
+        "GitHub": "https://github.com/9c5s/node-tcnet",
+        "npm": "https://www.npmjs.com/package/@9c5s/node-tcnet"
+    },
+    "categorizeByGroup": false,
+    "sort": ["kind", "instance-first", "alphabetical"],
+    "categoryOrder": ["Client", "Packets", "Data Packets", "Enums", "Types", "Utilities", "*"],
+    "validation": {
+        "notExported": true,
+        "invalidLink": true,
+        "notDocumented": false
+    },
+    "treatValidationWarningsAsErrors": true
+}

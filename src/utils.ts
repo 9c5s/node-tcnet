@@ -43,7 +43,10 @@ export const assert = (condition: boolean, message?: string): void => {
     }
 };
 
-/** ネットワークアダプタのアドレス情報を表すインタフェース */
+/**
+ * ネットワークアダプタのアドレス情報を表すインタフェース
+ * @category Utilities
+ */
 export interface NetworkAdapterAddress {
     address: string;
     netmask: string;
@@ -54,7 +57,10 @@ export interface NetworkAdapterAddress {
     scopeid?: number;
 }
 
-/** ネットワークアダプタの情報を表すインタフェース */
+/**
+ * ネットワークアダプタの情報を表すインタフェース
+ * @category Utilities
+ */
 export interface NetworkAdapterInfo {
     name: string;
     addresses: NetworkAdapterAddress[];
@@ -64,6 +70,7 @@ export interface NetworkAdapterInfo {
  * アダプタからnon-internalなIPv4アドレスを検索する
  * @param adapter - 検索対象のネットワークアダプタ
  * @returns IPv4アドレス情報。見つからない場合はundefined
+ * @category Utilities
  */
 export function findIPv4Address(adapter: NetworkAdapterInfo): NetworkAdapterAddress | undefined {
     return adapter.addresses.find((a) => a.family === "IPv4" && !a.internal);
@@ -72,6 +79,7 @@ export function findIPv4Address(adapter: NetworkAdapterInfo): NetworkAdapterAddr
 /**
  * システム上のネットワークアダプタ一覧を返す
  * @returns ネットワークアダプタ情報の配列
+ * @category Utilities
  */
 export function listNetworkAdapters(): NetworkAdapterInfo[] {
     const interfaces = networkInterfaces();

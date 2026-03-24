@@ -22,6 +22,8 @@
         "/dist"
     ],
     "scripts": {
+        "docs": "typedoc",
+        "docs:watch": "typedoc --watch",
         "test": "vitest run",
         "test:watch": "vitest",
         "example": "node --import tsx examples",
@@ -56,7 +58,8 @@
         "textlint-rule-preset-ja-technical-writing": "^12.0.2",
         "tsup": "^8.3.5",
         "tsx": "^4.19.2",
-        "typescript": "^4.8.4",
+        "typedoc": "^0.28.18",
+        "typescript": "^5.9.3",
         "typescript-eslint": "^8.57.2",
         "vitest": "^4.1.0"
     },

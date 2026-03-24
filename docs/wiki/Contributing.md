@@ -33,6 +33,8 @@ npm run build
 | `npm run mdlint:fix` | markdownlint自動修正 |
 | `npm run textlint` | textlint (docs/wiki配下) |
 | `npm run textlint:fix` | textlint自動修正 |
+| `npm run docs` | TypeDocでAPIドキュメントを生成 |
+| `npm run docs:watch` | TypeDoc (ファイル監視モード) |
 
 ## lefthook
 
