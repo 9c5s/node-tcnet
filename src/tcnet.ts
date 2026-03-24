@@ -2,7 +2,7 @@ import { Socket, createSocket, RemoteInfo } from "dgram";
 import EventEmitter = require("events");
 import * as nw from "./network";
 import { MultiPacketAssembler } from "./multi-packet";
-import { interfaceAddress } from "./utils";
+import { interfaceAddress, listNetworkAdapters, type NetworkAdapterInfo } from "./utils";
 
 const TCNET_BROADCAST_PORT = 60000;
 const TCNET_TIMESTAMP_PORT = 60001;
@@ -33,6 +33,9 @@ export class TCNetConfiguration {
     broadcastAddress = "255.255.255.255";
     broadcastListeningAddress = "";
     requestTimeout = 2000;
+    detectionTimeout = 5000;
+    switchRetryCount = 3;
+    switchRetryInterval = 1000;
 }
 
 const closeSocket = (socket: Socket): Promise<void> => new Promise((resolve) => socket.close(() => resolve()));
@@ -42,9 +45,9 @@ const closeSocket = (socket: Socket): Promise<void> => new Promise((resolve) => 
  */
 export class TCNetClient extends EventEmitter {
     private config: TCNetConfiguration;
-    private broadcastSocket: Socket;
-    private unicastSocket: Socket;
-    private timestampSocket: Socket;
+    private broadcastSocket: Socket | null = null;
+    private unicastSocket: Socket | null = null;
+    private timestampSocket: Socket | null = null;
     private server: RemoteInfo | null;
     private seq = 0;
     private uptime = 0;
@@ -52,6 +55,12 @@ export class TCNetClient extends EventEmitter {
     private connectedHandler: (() => void) | null = null;
     private requests: Map<string, STORED_REQUEST> = new Map();
     private announcementInterval: NodeJS.Timeout;
+    private broadcastSockets: Map<string, Socket> = new Map();
+    private timestampSockets: Map<string, Socket> = new Map();
+    private _selectedAdapter: NetworkAdapterInfo | null = null;
+    private _switching = false;
+    private _connectTimeoutId: NodeJS.Timeout | null = null;
+    private _detectionTimeoutId: NodeJS.Timeout | null = null;
 
     /**
      *
@@ -118,9 +127,9 @@ export class TCNetClient extends EventEmitter {
         this.removeAllListeners();
         this.connected = false;
         return Promise.all([
-            closeSocket(this.broadcastSocket),
-            closeSocket(this.unicastSocket),
-            closeSocket(this.timestampSocket),
+            this.broadcastSocket ? closeSocket(this.broadcastSocket) : Promise.resolve(),
+            this.unicastSocket ? closeSocket(this.unicastSocket) : Promise.resolve(),
+            this.timestampSocket ? closeSocket(this.timestampSocket) : Promise.resolve(),
         ])
             .catch((err) => {
                 const error = new Error("Error disconnecting from TCNet");
@@ -381,6 +390,9 @@ export class TCNetClient extends EventEmitter {
         if (this.server === null) {
             throw new Error("Server not yet discovered");
         }
+        if (!this.broadcastSocket) {
+            throw new Error("Not connected");
+        }
 
         await this.sendPacket(packet, this.broadcastSocket, this.server.port, this.server.address);
     }
@@ -416,6 +428,9 @@ export class TCNetClient extends EventEmitter {
      * @param packet packet to broadcast
      */
     public async broadcastPacket(packet: nw.TCNetPacket): Promise<void> {
+        if (!this.broadcastSocket) {
+            throw new Error("Not connected");
+        }
         await this.sendPacket(packet, this.broadcastSocket, TCNET_BROADCAST_PORT, this.config.broadcastAddress);
     }
 
