@@ -1,5 +1,5 @@
 import { Socket, createSocket, RemoteInfo } from "dgram";
-import EventEmitter = require("events");
+import { EventEmitter } from "events";
 import * as nw from "./network";
 import { MultiPacketAssembler } from "./multi-packet";
 import { interfaceAddress, listNetworkAdapters, findIPv4Address, type NetworkAdapterInfo } from "./utils";
@@ -86,17 +86,26 @@ export class TCNetClient extends EventEmitter {
         this.config.broadcastListeningAddress ||= "0.0.0.0";
     }
 
-    /** ロガーを返す */
+    /**
+     * ロガーを返す
+     * @returns ロガー。未設定の場合はnull
+     */
     public get log(): TCNetLogger | null {
         return this.config.logger;
     }
 
-    /** 選択されたネットワークアダプタを返す */
+    /**
+     * 選択されたネットワークアダプタを返す
+     * @returns アダプタ情報。未選択の場合はnull
+     */
     public get selectedAdapter(): NetworkAdapterInfo | null {
         return this._selectedAdapter;
     }
 
-    /** 接続状態を返す */
+    /**
+     * 接続状態を返す
+     * @returns 接続中の場合はtrue
+     */
     public get isConnected(): boolean {
         return this.connected;
     }
@@ -285,7 +294,7 @@ export class TCNetClient extends EventEmitter {
      * @param listenerPort - Masterのリスナーポート
      */
     private async convergeToAdapter(adapterName: string, rinfo: RemoteInfo, listenerPort: number): Promise<void> {
-        if (this.connected) return; // first wins
+        if (this.connected) return; // 先着優先
 
         const adapter = this.adapterMap.get(adapterName);
         if (!adapter) return;
@@ -380,9 +389,8 @@ export class TCNetClient extends EventEmitter {
         const packetClass = nw.TCNetPackets[header.messageType];
         if (packetClass !== null) {
             const packet = new packetClass();
-            // Set buffer & header before reading length,
-            // as variable-length messages don't have a well-known fixed size,
-            // and may need to read from buffer to determine the length
+            // 可変長メッセージはバッファから長さを判定する必要があるため、
+            // length()の前にbufferとheaderを設定する
             packet.buffer = header.buffer;
             packet.header = header;
 
@@ -439,7 +447,7 @@ export class TCNetClient extends EventEmitter {
 
             if (packet instanceof nw.TCNetOptOutPacket) {
                 if (mgmtHeader.nodeType == nw.NodeType.Master) {
-                    // We received an OptOut packet from a server
+                    // MasterからOptOutパケットを受信した
                     this.log?.debug("Received optout from current Master");
                     if (this.server?.address == rinfo.address && this.server?.port == packet.nodeListenerPort) {
                         this.server = null;
@@ -523,9 +531,9 @@ export class TCNetClient extends EventEmitter {
                 }
             }
         } else if (packet instanceof nw.TCNetOptInPacket) {
-            // Received OptIn directly via Unicast --> we are registered at the destination now.
+            // ユニキャスト経由でOptInを直接受信 -> 宛先に登録された
             if (mgmtHeader.nodeType == nw.NodeType.Master) {
-                // Received OptIn from Master --> registered at Pro DJ Link Bridge or comparable tool
+                // MasterからOptInを受信 -> Pro DJ Link Bridge等に登録された
                 this.server = rinfo;
                 this.server.port = packet.nodeListenerPort;
                 if (this.connectedHandler) {
@@ -630,7 +638,7 @@ export class TCNetClient extends EventEmitter {
         optInPacket.nodeListenerPort = this.config.unicastPort;
         optInPacket.uptime = this.uptime++;
 
-        // According to the guide the uptime shall roll over after 12 hours
+        // 仕様書に従い、uptimeは12時間でロールオーバーする
         if (this.uptime >= 12 * 60 * 60) {
             this.uptime = 0;
         }
