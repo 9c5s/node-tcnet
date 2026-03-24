@@ -34,3 +34,6 @@ docs/superpowers
 
 # TypeDoc output
 docs-dist/
+
+# Git worktrees
+.worktrees/
