@@ -9,7 +9,15 @@ export default [
     {
         rules: {
             // 既存ルールの移行
-            "@typescript-eslint/no-unused-vars": "off",
+            "@typescript-eslint/no-unused-vars": [
+                "warn",
+                {
+                    argsIgnorePattern: "^_",
+                    varsIgnorePattern: "^_",
+                    caughtErrorsIgnorePattern: "^_",
+                    ignoreRestSiblings: true,
+                },
+            ],
             "@typescript-eslint/no-empty-function": ["warn", { allow: ["arrowFunctions"] }],
             "no-console": ["warn"],
 
@@ -41,15 +49,30 @@ export default [
         },
     },
     {
-        ignores: [
-            "**/*.d.ts",
-            "dist/**",
-            "node_modules/**",
-            "examples/**",
-            "tests/**",
-            ".tmp/**",
-            "scripts/**",
-            ".*.js",
-        ],
+        files: ["tests/**"],
+        rules: {
+            "jsdoc/require-jsdoc": "off",
+            "jsdoc/require-description": "off",
+            "jsdoc/require-param-description": "off",
+            "jsdoc/require-returns-description": "off",
+            "jsdoc/require-returns": "off",
+            "jsdoc/require-hyphen-before-param-description": "off",
+            "@typescript-eslint/no-explicit-any": "off",
+        },
+    },
+    {
+        files: ["examples/**"],
+        rules: {
+            "jsdoc/require-jsdoc": "off",
+            "jsdoc/require-description": "off",
+            "jsdoc/require-param-description": "off",
+            "jsdoc/require-returns-description": "off",
+            "jsdoc/require-returns": "off",
+            "jsdoc/require-hyphen-before-param-description": "off",
+            "no-console": "off",
+        },
+    },
+    {
+        ignores: ["**/*.d.ts", "dist/**", "node_modules/**", ".tmp/**", "scripts/**", ".*.js"],
     },
 ];
