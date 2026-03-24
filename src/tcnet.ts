@@ -80,6 +80,14 @@ export class TCNetClient extends EventEmitter {
         return this.config.logger;
     }
 
+    public get selectedAdapter(): NetworkAdapterInfo | null {
+        return this._selectedAdapter;
+    }
+
+    public get isConnected(): boolean {
+        return this.connected;
+    }
+
     /**
      * Wrapper method to bind a socket with a Promise
      * @param socket socket to bind
@@ -99,24 +107,58 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * Connect to the TCNet networks
+     * 全non-internal IPv4アダプタにソケットを作成し、即座にresolveする
+     * Master OptIn検出時にアダプタ収束を行う
      */
     public async connect(): Promise<void> {
-        this.broadcastSocket = createSocket({ type: "udp4", reuseAddr: true }, this.receiveBroadcast.bind(this));
-        await this.bindSocket(this.broadcastSocket, TCNET_BROADCAST_PORT, this.config.broadcastListeningAddress);
-        this.broadcastSocket.setBroadcast(true);
+        // 二重呼び出し防止
+        if (this.broadcastSockets.size > 0 || this.broadcastSocket !== null) {
+            throw new Error("Already connected or connecting");
+        }
 
-        this.timestampSocket = createSocket({ type: "udp4", reuseAddr: true }, this.receiveTimestamp.bind(this));
-        await this.bindSocket(this.timestampSocket, TCNET_TIMESTAMP_PORT, this.config.broadcastListeningAddress);
-        this.timestampSocket.setBroadcast(true);
+        // non-internal + IPv4アダプタを取得
+        const adapters = listNetworkAdapters().filter((a) =>
+            a.addresses.some((addr) => addr.family === "IPv4" && !addr.internal),
+        );
+        if (adapters.length === 0) {
+            throw new Error("No non-internal IPv4 network adapters found");
+        }
 
+        // unicastソケット (1つだけ)
         this.unicastSocket = createSocket({ type: "udp4", reuseAddr: false }, this.receiveUnicast.bind(this));
         await this.bindSocket(this.unicastSocket, this.config.unicastPort, "0.0.0.0");
 
+        // 各アダプタにbroadcast/timestampソケットを作成
+        for (const adapter of adapters) {
+            const ipv4 = adapter.addresses.find((a) => a.family === "IPv4" && !a.internal);
+            if (!ipv4) continue;
+
+            const bSocket = createSocket({ type: "udp4", reuseAddr: true }, (msg: Buffer, rinfo: RemoteInfo) =>
+                this.receiveBroadcast(msg, rinfo, adapter.name),
+            );
+            await this.bindSocket(bSocket, TCNET_BROADCAST_PORT, ipv4.address);
+            bSocket.setBroadcast(true);
+            this.broadcastSockets.set(adapter.name, bSocket);
+
+            const tSocket = createSocket({ type: "udp4", reuseAddr: true }, this.receiveTimestamp.bind(this));
+            await this.bindSocket(tSocket, TCNET_TIMESTAMP_PORT, ipv4.address);
+            tSocket.setBroadcast(true);
+            this.timestampSockets.set(adapter.name, tSocket);
+        }
+
+        // OptIn送信開始 (全アダプタ)
         await this.announceApp();
         this.announcementInterval = setInterval(this.announceApp.bind(this), 1000);
 
-        await this.waitConnected();
+        // 検出タイムアウト
+        if (this.config.detectionTimeout > 0) {
+            this._detectionTimeoutId = setTimeout(() => {
+                this._detectionTimeoutId = null;
+                if (!this.connected) {
+                    this.emit("detectionTimeout");
+                }
+            }, this.config.detectionTimeout);
+        }
     }
 
     /**
@@ -195,6 +237,86 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
+     * Master検出時に該当アダプタに収束し、他のアダプタのソケットを閉じる
+     */
+    private async convergeToAdapter(adapterName: string, rinfo: RemoteInfo, listenerPort: number): Promise<void> {
+        if (this.connected) return; // first wins
+
+        const adapter = listNetworkAdapters().find((a) => a.name === adapterName);
+        if (!adapter) return;
+
+        this._selectedAdapter = adapter;
+        this.server = rinfo;
+        this.server.port = listenerPort;
+        this.connected = true;
+
+        if (this._detectionTimeoutId) {
+            clearTimeout(this._detectionTimeoutId);
+            this._detectionTimeoutId = null;
+        }
+
+        // 確定アダプタのソケットを単一変数に移行
+        this.broadcastSocket = this.broadcastSockets.get(adapterName) ?? null;
+        this.timestampSocket = this.timestampSockets.get(adapterName) ?? null;
+
+        // 他アダプタのソケットを閉じる
+        const closePromises: Promise<void>[] = [];
+        for (const [name, socket] of this.broadcastSockets) {
+            if (name !== adapterName) closePromises.push(closeSocket(socket));
+        }
+        for (const [name, socket] of this.timestampSockets) {
+            if (name !== adapterName) closePromises.push(closeSocket(socket));
+        }
+        this.broadcastSockets.clear();
+        this.timestampSockets.clear();
+
+        await Promise.all(closePromises).catch((err) => {
+            this.log?.debug(`Error closing non-selected sockets: ${err}`);
+        });
+
+        this.emit("adapterSelected", adapter);
+    }
+
+    /**
+     * 指定アダプタのみにソケットを作成してMaster検出を待つ
+     * switchAdapter()から使用される内部メソッド
+     */
+    private async connectToAdapter(adapterName: string): Promise<void> {
+        const adapter = listNetworkAdapters().find((a) => a.name === adapterName);
+        if (!adapter) throw new Error(`Interface ${adapterName} does not exist`);
+
+        const ipv4 = adapter.addresses.find((a) => a.family === "IPv4" && !a.internal);
+        if (!ipv4) throw new Error(`Interface ${adapterName} does not have IPv4 address`);
+
+        const broadcastAddr = interfaceAddress(adapterName);
+
+        // 単一アダプタ用ソケット作成 (adapterName引数なし -> connectToAdapter経由と識別)
+        this.broadcastSocket = createSocket({ type: "udp4", reuseAddr: true }, (msg: Buffer, rinfo: RemoteInfo) =>
+            this.receiveBroadcast(msg, rinfo),
+        );
+        await this.bindSocket(this.broadcastSocket, TCNET_BROADCAST_PORT, ipv4.address);
+        this.broadcastSocket.setBroadcast(true);
+
+        this.timestampSocket = createSocket({ type: "udp4", reuseAddr: true }, this.receiveTimestamp.bind(this));
+        await this.bindSocket(this.timestampSocket, TCNET_TIMESTAMP_PORT, ipv4.address);
+        this.timestampSocket.setBroadcast(true);
+
+        this.unicastSocket = createSocket({ type: "udp4", reuseAddr: false }, this.receiveUnicast.bind(this));
+        await this.bindSocket(this.unicastSocket, this.config.unicastPort, "0.0.0.0");
+
+        this.config.broadcastAddress = broadcastAddr;
+
+        // OptIn送信開始
+        await this.announceApp();
+        this.announcementInterval = setInterval(this.announceApp.bind(this), 1000);
+
+        // Master検出を待つ
+        await this.waitConnected();
+
+        this._selectedAdapter = adapter;
+    }
+
+    /**
      * Parse a packet from a ManagementHeader
      * @param header the received management header
      * @returns the parsed packet
@@ -227,12 +349,13 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * Callback method to receive datagrams on the broadcast socket
+     * ブロードキャストソケットのデータグラム受信コールバック
      *
-     * @param msg datagram buffer
-     * @param rinfo remoteinfo
+     * @param msg データグラムバッファ
+     * @param rinfo 送信元情報
+     * @param adapterName 受信したアダプタ名 (connect()経由の場合のみ設定)
      */
-    private receiveBroadcast(msg: Buffer, rinfo: RemoteInfo): void {
+    private receiveBroadcast(msg: Buffer, rinfo: RemoteInfo, adapterName?: string): void {
         const mgmtHeader = new nw.TCNetManagementHeader(msg);
         mgmtHeader.read();
         const packet: nw.TCNetPacket | null = this.parsePacket(mgmtHeader);
@@ -240,19 +363,22 @@ export class TCNetClient extends EventEmitter {
         if (packet) {
             if (packet instanceof nw.TCNetOptInPacket) {
                 if (mgmtHeader.nodeType == nw.NodeType.Master) {
-                    // MasterのブロードキャストOptInからも接続を検出する
-                    // (同一マシン上のBridgeはユニキャスト応答を返さない場合がある)
-                    this.server = rinfo;
-                    this.server.port = packet.nodeListenerPort;
-                    if (this.connectedHandler) {
+                    if (!this.connected && adapterName) {
+                        // 検出中 (connect()経由): アダプタ収束
+                        this.convergeToAdapter(adapterName, rinfo, packet.nodeListenerPort);
+                    } else if (!this.connected && !adapterName) {
+                        // 単一アダプタ接続中 (connectToAdapter()経由): waitConnected解決
+                        this.server = rinfo;
+                        this.server.port = packet.nodeListenerPort;
                         this.connected = true;
-                        // 即座にOptInを送信してMasterに登録する
-                        this.announceApp().catch((err) => {
-                            const error = err instanceof Error ? err : new Error(String(err));
-                            this.log?.debug(`Failed to announce on connect: ${error.message}`);
-                        });
-                        this.connectedHandler();
-                        this.connectedHandler = null;
+                        if (this.connectedHandler) {
+                            this.connectedHandler();
+                            this.connectedHandler = null;
+                        }
+                    } else if (this.connected) {
+                        // 確定後: 従来通りserver更新
+                        this.server = rinfo;
+                        this.server.port = packet.nodeListenerPort;
                     }
                 }
             }
@@ -440,6 +566,9 @@ export class TCNetClient extends EventEmitter {
      * Called every second to announce our app on the network
      */
     private async announceApp(): Promise<void> {
+        // マルチソケット検出中はbroadcastSocketが未確定のためスキップする
+        if (!this.broadcastSocket) return;
+
         const optInPacket = new nw.TCNetOptInPacket();
         optInPacket.nodeCount = 0;
         optInPacket.nodeListenerPort = this.config.unicastPort;
