@@ -16,11 +16,13 @@ type STORED_REQUEST = {
 
 const MULTI_PACKET_TYPES = new Set([nw.TCNetDataPacketType.BigWaveFormData, nw.TCNetDataPacketType.BeatGridData]);
 
+/** TCNetClientが使用するロガーインタフェース */
 export type TCNetLogger = {
     error: (error: Error) => void;
     debug: (message: string) => void;
 };
 
+/** TCNetClientの設定 */
 export class TCNetConfiguration {
     logger: TCNetLogger | null = null;
     unicastPort = 65023;
@@ -38,13 +40,16 @@ export class TCNetConfiguration {
     switchRetryInterval = 1000;
 }
 
+/**
+ * ソケットをクローズしてPromiseで返す
+ * @param socket - クローズするソケット
+ * @returns クローズ完了のPromise
+ */
 function closeSocket(socket: Socket): Promise<void> {
     return new Promise((resolve) => socket.close(() => resolve()));
 }
 
-/**
- * Low level implementation of the TCNet protocol
- */
+/** TCNetプロトコルの低レベル実装 */
 export class TCNetClient extends EventEmitter {
     private config: TCNetConfiguration;
     private broadcastSocket: Socket | null = null;
@@ -68,8 +73,8 @@ export class TCNetClient extends EventEmitter {
     private detectingAdapter = false;
 
     /**
-     *
-     * @param config configuration for TCNet access
+     * TCNetClientを初期化する
+     * @param config - TCNetアクセスの設定。省略時はデフォルト値を使用
      */
     constructor(config?: TCNetConfiguration) {
         super();
@@ -81,14 +86,17 @@ export class TCNetClient extends EventEmitter {
         this.config.broadcastListeningAddress ||= "0.0.0.0";
     }
 
+    /** ロガーを返す */
     public get log(): TCNetLogger | null {
         return this.config.logger;
     }
 
+    /** 選択されたネットワークアダプタを返す */
     public get selectedAdapter(): NetworkAdapterInfo | null {
         return this._selectedAdapter;
     }
 
+    /** 接続状態を返す */
     public get isConnected(): boolean {
         return this.connected;
     }
