@@ -617,6 +617,66 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
+     * アダプタを切り替える
+     * pendingリクエストをrejectし、ソケットを再接続する
+     *
+     * @param interfaceName 切り替え先のネットワークインターフェース名
+     */
+    public async switchAdapter(interfaceName: string): Promise<void> {
+        // バリデーション
+        const adapters = listNetworkAdapters();
+        const adapter = adapters.find((a) => a.name === interfaceName);
+        if (!adapter) {
+            throw new Error(`Interface ${interfaceName} does not exist`);
+        }
+        const hasIPv4 = adapter.addresses.some((a) => a.family === "IPv4" && !a.internal);
+        if (!hasIPv4) {
+            throw new Error(`Interface ${interfaceName} does not have IPv4 address`);
+        }
+
+        this._switching = true;
+
+        // pendingリクエストをreject
+        for (const [, req] of this.requests) {
+            clearTimeout(req.timeout);
+            req.assembler?.reset();
+            req.reject(new Error("Connection switching"));
+        }
+        this.requests.clear();
+
+        // ソケット切断 (リスナー維持)
+        await this.disconnectSockets();
+
+        // config更新
+        this.config.broadcastInterface = interfaceName;
+
+        // リトライ付き単一アダプタ接続
+        let lastError: Error | undefined;
+        const maxAttempts = 1 + this.config.switchRetryCount;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+            if (!this._switching) {
+                throw new Error("Switch interrupted by disconnect");
+            }
+            try {
+                await this.connectToAdapter(interfaceName);
+                this._switching = false;
+                this.emit("adapterSelected", adapter);
+                return;
+            } catch (err) {
+                lastError = err instanceof Error ? err : new Error(String(err));
+                this.log?.debug(`switchAdapter retry ${attempt + 1}/${maxAttempts} failed: ${lastError.message}`);
+                if (attempt < maxAttempts - 1 && this._switching) {
+                    await this.disconnectSockets();
+                    await new Promise((r) => setTimeout(r, this.config.switchRetryInterval));
+                }
+            }
+        }
+
+        this._switching = false;
+        throw new Error(`Failed to switch adapter after ${maxAttempts} attempts: ${lastError?.message}`);
+    }
+
+    /**
      * Sends a request packet to the discovered server
      *
      * @param dataType requested data type
