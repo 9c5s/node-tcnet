@@ -2,6 +2,16 @@ import eslint from "@eslint/js";
 import tseslint from "typescript-eslint";
 import jsdoc from "eslint-plugin-jsdoc";
 
+// tests/examples共通のJSDoc緩和ルール
+const relaxedJsdocRules = {
+    "jsdoc/require-jsdoc": "off",
+    "jsdoc/require-description": "off",
+    "jsdoc/require-param-description": "off",
+    "jsdoc/require-returns-description": "off",
+    "jsdoc/require-returns": "off",
+    "jsdoc/require-hyphen-before-param-description": "off",
+};
+
 export default [
     eslint.configs.recommended,
     ...tseslint.configs.recommended,
@@ -51,28 +61,18 @@ export default [
     {
         files: ["tests/**"],
         rules: {
-            "jsdoc/require-jsdoc": "off",
-            "jsdoc/require-description": "off",
-            "jsdoc/require-param-description": "off",
-            "jsdoc/require-returns-description": "off",
-            "jsdoc/require-returns": "off",
-            "jsdoc/require-hyphen-before-param-description": "off",
+            ...relaxedJsdocRules,
             "@typescript-eslint/no-explicit-any": "off",
         },
     },
     {
         files: ["examples/**"],
         rules: {
-            "jsdoc/require-jsdoc": "off",
-            "jsdoc/require-description": "off",
-            "jsdoc/require-param-description": "off",
-            "jsdoc/require-returns-description": "off",
-            "jsdoc/require-returns": "off",
-            "jsdoc/require-hyphen-before-param-description": "off",
+            ...relaxedJsdocRules,
             "no-console": "off",
         },
     },
     {
-        ignores: ["**/*.d.ts", "dist/**", "node_modules/**", ".tmp/**", "scripts/**", ".*.js"],
+        ignores: ["**/*.d.ts", "dist/**", "node_modules/**", ".tmp/**", "scripts/**", ".*.js", ".worktrees/**"],
     },
 ];
