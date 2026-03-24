@@ -291,3 +291,47 @@ describe("switchAdapter() 切り替えロジック", () => {
         await switchPromise;
     });
 });
+
+describe("switchAdapter() リトライ", () => {
+    it("初回失敗、2回目で成功", async () => {
+        const client = new TestTCNetClient();
+        client.initMockSockets();
+        client.setConnected(true);
+        client.setRetryConfig(3, 50);
+        client.mockConnectWithFailures(1);
+
+        await expect(client.switchAdapter(getFirstNonLoopbackAdapter())).resolves.toBeUndefined();
+    });
+
+    it("全リトライ失敗でエラー", async () => {
+        const client = new TestTCNetClient();
+        client.initMockSockets();
+        client.setConnected(true);
+        client.setRetryConfig(2, 50);
+        client.mockConnectAlwaysFail();
+
+        await expect(client.switchAdapter(getFirstNonLoopbackAdapter())).rejects.toThrow("Failed to switch adapter");
+    });
+
+    it("リトライ中にdisconnect()で中断", async () => {
+        const client = new TestTCNetClient();
+        client.initMockSockets();
+        client.setConnected(true);
+        client.setRetryConfig(5, 100);
+        client.mockConnectAlwaysFail();
+
+        const adapterName = getFirstNonLoopbackAdapter();
+        const switchPromise = client.switchAdapter(adapterName);
+        setTimeout(() => client.disconnect(), 150);
+        await expect(switchPromise).rejects.toThrow("interrupted");
+    });
+
+    it("検出中 (未確定) での切り替え", async () => {
+        const client = new TestTCNetClient();
+        client.setConfig({ detectionTimeout: 500, unicastPort: uniquePort() });
+        await client.connect();
+        client.mockConnectToAdapter();
+        await expect(client.switchAdapter(getFirstNonLoopbackAdapter())).resolves.toBeUndefined();
+        await client.disconnect();
+    });
+});
