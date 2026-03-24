@@ -1,12 +1,22 @@
 import { networkInterfaces } from "os";
 
-// IPv4アドレスとサブネットマスクからブロードキャストアドレスを計算する
+/**
+ * IPv4アドレスとサブネットマスクからブロードキャストアドレスを計算する
+ * @param address - IPv4アドレス文字列
+ * @param netmask - サブネットマスク文字列
+ * @returns ブロードキャストアドレス文字列
+ */
 function calculateBroadcastAddress(address: string, netmask: string): string {
     const addrParts = address.split(".").map(Number);
     const maskParts = netmask.split(".").map(Number);
     return addrParts.map((a, i) => a | (~maskParts[i] & 0xff)).join(".");
 }
 
+/**
+ * 指定インタフェースのブロードキャストアドレスを返す
+ * @param ifname - ネットワークインタフェース名
+ * @returns ブロードキャストアドレス文字列
+ */
 export function interfaceAddress(ifname: string): string {
     const interfaces = networkInterfaces();
     const intf = interfaces[ifname];
@@ -22,13 +32,18 @@ export function interfaceAddress(ifname: string): string {
     return calculateBroadcastAddress(address.address, address.netmask);
 }
 
+/**
+ * 条件が偽の場合にエラーをスローするアサーション関数
+ * @param condition - 検証する条件
+ * @param message - エラーメッセージ
+ */
 export const assert = (condition: boolean, message?: string): void => {
     if (!condition) {
         throw new Error(`Assertion failed: ${message}`);
     }
 };
 
-// ネットワークアダプタのアドレス情報を表すインタフェース
+/** ネットワークアダプタのアドレス情報を表すインタフェース */
 export interface NetworkAdapterAddress {
     address: string;
     netmask: string;
@@ -39,18 +54,25 @@ export interface NetworkAdapterAddress {
     scopeid?: number;
 }
 
-// ネットワークアダプタの情報を表すインタフェース
+/** ネットワークアダプタの情報を表すインタフェース */
 export interface NetworkAdapterInfo {
     name: string;
     addresses: NetworkAdapterAddress[];
 }
 
-// アダプタからnon-internalなIPv4アドレスを検索する
+/**
+ * アダプタからnon-internalなIPv4アドレスを検索する
+ * @param adapter - 検索対象のネットワークアダプタ
+ * @returns IPv4アドレス情報。見つからない場合はundefined
+ */
 export function findIPv4Address(adapter: NetworkAdapterInfo): NetworkAdapterAddress | undefined {
     return adapter.addresses.find((a) => a.family === "IPv4" && !a.internal);
 }
 
-// システム上のネットワークアダプタ一覧を返す
+/**
+ * システム上のネットワークアダプタ一覧を返す
+ * @returns ネットワークアダプタ情報の配列
+ */
 export function listNetworkAdapters(): NetworkAdapterInfo[] {
     const interfaces = networkInterfaces();
     const result: NetworkAdapterInfo[] = [];

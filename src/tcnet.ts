@@ -1,5 +1,5 @@
 import { Socket, createSocket, RemoteInfo } from "dgram";
-import EventEmitter = require("events");
+import { EventEmitter } from "events";
 import * as nw from "./network";
 import { MultiPacketAssembler } from "./multi-packet";
 import { interfaceAddress, listNetworkAdapters, findIPv4Address, type NetworkAdapterInfo } from "./utils";
@@ -16,11 +16,13 @@ type STORED_REQUEST = {
 
 const MULTI_PACKET_TYPES = new Set([nw.TCNetDataPacketType.BigWaveFormData, nw.TCNetDataPacketType.BeatGridData]);
 
+/** TCNetClientが使用するロガーインタフェース */
 export type TCNetLogger = {
     error: (error: Error) => void;
     debug: (message: string) => void;
 };
 
+/** TCNetClientの設定 */
 export class TCNetConfiguration {
     logger: TCNetLogger | null = null;
     unicastPort = 65023;
@@ -38,13 +40,16 @@ export class TCNetConfiguration {
     switchRetryInterval = 1000;
 }
 
+/**
+ * ソケットをクローズしてPromiseで返す
+ * @param socket - クローズするソケット
+ * @returns クローズ完了のPromise
+ */
 function closeSocket(socket: Socket): Promise<void> {
     return new Promise((resolve) => socket.close(() => resolve()));
 }
 
-/**
- * Low level implementation of the TCNet protocol
- */
+/** TCNetプロトコルの低レベル実装 */
 export class TCNetClient extends EventEmitter {
     private config: TCNetConfiguration;
     private broadcastSocket: Socket | null = null;
@@ -68,8 +73,8 @@ export class TCNetClient extends EventEmitter {
     private detectingAdapter = false;
 
     /**
-     *
-     * @param config configuration for TCNet access
+     * TCNetClientを初期化する
+     * @param config - TCNetアクセスの設定。省略時はデフォルト値を使用
      */
     constructor(config?: TCNetConfiguration) {
         super();
@@ -81,24 +86,36 @@ export class TCNetClient extends EventEmitter {
         this.config.broadcastListeningAddress ||= "0.0.0.0";
     }
 
+    /**
+     * ロガーを返す
+     * @returns ロガー。未設定の場合はnull
+     */
     public get log(): TCNetLogger | null {
         return this.config.logger;
     }
 
+    /**
+     * 選択されたネットワークアダプタを返す
+     * @returns アダプタ情報。未選択の場合はnull
+     */
     public get selectedAdapter(): NetworkAdapterInfo | null {
         return this._selectedAdapter;
     }
 
+    /**
+     * 接続状態を返す
+     * @returns 接続中の場合はtrue
+     */
     public get isConnected(): boolean {
         return this.connected;
     }
 
     /**
-     * Wrapper method to bind a socket with a Promise
-     * @param socket socket to bind
-     * @param port port to bind to
-     * @param address address to bind to
-     * @returns Promise which always resolves (no errors in callback)
+     * ソケットをバインドするPromiseラッパー
+     * @param socket - バインドするソケット
+     * @param port - バインドするポート番号
+     * @param address - バインドするアドレス
+     * @returns バインド完了のPromise
      */
     private bindSocket(socket: Socket, port: number, address: string): Promise<void> {
         return new Promise((resolve, reject) => {
@@ -250,7 +267,8 @@ export class TCNetClient extends EventEmitter {
 
     /**
      * Masterからのユニキャストを待機する
-     * @param timeoutMs タイムアウト(ms)。省略時はdetectionTimeoutを使用
+     * @param timeoutMs - タイムアウト(ms)。省略時はdetectionTimeoutを使用
+     * @returns 接続完了のPromise
      */
     private waitConnected(timeoutMs?: number): Promise<void> {
         return new Promise((resolve, reject) => {
@@ -271,9 +289,12 @@ export class TCNetClient extends EventEmitter {
 
     /**
      * Master検出時に該当アダプタに収束し、他のアダプタのソケットを閉じる
+     * @param adapterName - 収束先のアダプタ名
+     * @param rinfo - Master送信元情報
+     * @param listenerPort - Masterのリスナーポート
      */
     private async convergeToAdapter(adapterName: string, rinfo: RemoteInfo, listenerPort: number): Promise<void> {
-        if (this.connected) return; // first wins
+        if (this.connected) return; // 先着優先
 
         const adapter = this.adapterMap.get(adapterName);
         if (!adapter) return;
@@ -314,8 +335,9 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * 指定アダプタのみにソケットを作成してMaster検出を待つ
+     * 指定アダプタのみにソケットを作成してMaster検出を待つ。
      * switchAdapter()から使用される内部メソッド
+     * @param adapterName - 接続先のアダプタ名
      */
     private async connectToAdapter(adapterName: string): Promise<void> {
         const adapter = listNetworkAdapters().find((a) => a.name === adapterName);
@@ -359,17 +381,16 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * Parse a packet from a ManagementHeader
-     * @param header the received management header
-     * @returns the parsed packet
+     * 管理ヘッダーからパケットをパースする
+     * @param header - 受信した管理ヘッダー
+     * @returns パースされたパケット。不正な場合はnull
      */
     private parsePacket(header: nw.TCNetManagementHeader): nw.TCNetPacket | null {
         const packetClass = nw.TCNetPackets[header.messageType];
         if (packetClass !== null) {
             const packet = new packetClass();
-            // Set buffer & header before reading length,
-            // as variable-length messages don't have a well-known fixed size,
-            // and may need to read from buffer to determine the length
+            // 可変長メッセージはバッファから長さを判定する必要があるため、
+            // length()の前にbufferとheaderを設定する
             packet.buffer = header.buffer;
             packet.header = header;
 
@@ -392,10 +413,9 @@ export class TCNetClient extends EventEmitter {
 
     /**
      * ブロードキャストソケットのデータグラム受信コールバック
-     *
-     * @param msg データグラムバッファ
-     * @param rinfo 送信元情報
-     * @param adapterName 受信したアダプタ名 (connect()経由の場合のみ設定)
+     * @param msg - データグラムバッファ
+     * @param rinfo - 送信元情報
+     * @param adapterName - 受信したアダプタ名 (connect()経由の場合のみ設定)
      */
     private receiveBroadcast(msg: Buffer, rinfo: RemoteInfo, adapterName?: string): void {
         const mgmtHeader = new nw.TCNetManagementHeader(msg);
@@ -427,7 +447,7 @@ export class TCNetClient extends EventEmitter {
 
             if (packet instanceof nw.TCNetOptOutPacket) {
                 if (mgmtHeader.nodeType == nw.NodeType.Master) {
-                    // We received an OptOut packet from a server
+                    // MasterからOptOutパケットを受信した
                     this.log?.debug("Received optout from current Master");
                     if (this.server?.address == rinfo.address && this.server?.port == packet.nodeListenerPort) {
                         this.server = null;
@@ -444,10 +464,9 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * Callback method to receive datagrams on the unicast socket
-     *
-     * @param msg datagram buffer
-     * @param rinfo remoteinfo
+     * ユニキャストソケットのデータグラム受信コールバック
+     * @param msg - データグラムバッファ
+     * @param rinfo - 送信元情報
      */
     private receiveUnicast(msg: Buffer, rinfo: RemoteInfo): void {
         const mgmtHeader = new nw.TCNetManagementHeader(msg);
@@ -512,9 +531,9 @@ export class TCNetClient extends EventEmitter {
                 }
             }
         } else if (packet instanceof nw.TCNetOptInPacket) {
-            // Received OptIn directly via Unicast --> we are registered at the destination now.
+            // ユニキャスト経由でOptInを直接受信 -> 宛先に登録された
             if (mgmtHeader.nodeType == nw.NodeType.Master) {
-                // Received OptIn from Master --> registered at Pro DJ Link Bridge or comparable tool
+                // MasterからOptInを受信 -> Pro DJ Link Bridge等に登録された
                 this.server = rinfo;
                 this.server.port = packet.nodeListenerPort;
                 if (this.connectedHandler) {
@@ -532,9 +551,9 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * Callback method to receive datagrams on the timestamp socket
-     * @param msg datagram buffer
-     * @param rinfo remoteinfo
+     * タイムスタンプソケットのデータグラム受信コールバック
+     * @param msg - データグラムバッファ
+     * @param _rinfo - 送信元情報 (未使用)
      */
     private receiveTimestamp(msg: Buffer, _rinfo: RemoteInfo): void {
         // アダプタ確定前はtimeイベントを発火しない
@@ -552,9 +571,8 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * Fill headers of a packet
-     *
-     * @param packet Packet that needs header information
+     * パケットにヘッダー情報を設定する
+     * @param packet - ヘッダーを設定するパケット
      */
     private fillHeader(packet: nw.TCNetPacket): void {
         packet.header = new nw.TCNetManagementHeader(packet.buffer);
@@ -570,12 +588,12 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * Generalized method to send packets to a given destination on a given socket
-     *
-     * @param packet Packet to send
-     * @param socket Socket to send on
-     * @param port Destination Port
-     * @param address Destination Address
+     * 指定ソケットで指定宛先にパケットを送信する
+     * @param packet - 送信するパケット
+     * @param socket - 送信に使用するソケット
+     * @param port - 宛先ポート番号
+     * @param address - 宛先アドレス
+     * @returns 送信完了のPromise
      */
     private sendPacket(packet: nw.TCNetPacket, socket: Socket, port: number, address: string): Promise<void> {
         return new Promise((resolve, reject) => {
@@ -593,8 +611,8 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * Sends a packet to the discovered server
-     * @param packet Packet to send
+     * 検出済みサーバーにパケットを送信する
+     * @param packet - 送信するパケット
      */
     public async sendServer(packet: nw.TCNetPacket): Promise<void> {
         if (this.switching) {
@@ -620,7 +638,7 @@ export class TCNetClient extends EventEmitter {
         optInPacket.nodeListenerPort = this.config.unicastPort;
         optInPacket.uptime = this.uptime++;
 
-        // According to the guide the uptime shall roll over after 12 hours
+        // 仕様書に従い、uptimeは12時間でロールオーバーする
         if (this.uptime >= 12 * 60 * 60) {
             this.uptime = 0;
         }
@@ -654,9 +672,8 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * Broadcasts a packet to the network
-     *
-     * @param packet packet to broadcast
+     * ネットワークにパケットをブロードキャストする
+     * @param packet - ブロードキャストするパケット
      */
     public async broadcastPacket(packet: nw.TCNetPacket): Promise<void> {
         if (this.switching) {
@@ -669,10 +686,9 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * アダプタを切り替える
+     * アダプタを切り替える。
      * pendingリクエストをrejectし、ソケットを再接続する
-     *
-     * @param interfaceName 切り替え先のネットワークインターフェース名
+     * @param interfaceName - 切り替え先のネットワークインターフェース名
      */
     public async switchAdapter(interfaceName: string): Promise<void> {
         // バリデーション
@@ -728,11 +744,10 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * Sends a request packet to the discovered server
-     *
-     * @param dataType requested data type
-     * @param layer requested layer
-     * @returns Promise to wait for answer on request
+     * 検出済みサーバーにデータリクエストを送信する
+     * @param dataType - 要求するデータタイプ
+     * @param layer - 要求するレイヤー (0-7)
+     * @returns リクエスト応答のPromise
      */
     public requestData(dataType: number, layer: number): Promise<nw.TCNetDataPacket> {
         return new Promise((resolve, reject) => {

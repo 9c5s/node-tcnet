@@ -1,4 +1,4 @@
-// CUEポイントの情報を表す型
+/** CUEポイントの情報を表す型 */
 export type CuePoint = {
     index: number;
     type: number;
@@ -7,37 +7,37 @@ export type CuePoint = {
     color: { r: number; g: number; b: number };
 };
 
-// CUEデータを表す型
+/** CUEデータを表す型 */
 export type CueData = {
     loopInTime: number;
     loopOutTime: number;
     cues: CuePoint[];
 };
 
-// 波形の1バーを表す型
+/** 波形の1バーを表す型 */
 export type WaveformBar = {
     level: number;
     color: number;
 };
 
-// 波形データを表す型
+/** 波形データを表す型 */
 export type WaveformData = {
     bars: WaveformBar[];
 };
 
-// ビートグリッドの1エントリを表す型
+/** ビートグリッドの1エントリを表す型 */
 export type BeatGridEntry = {
     beatNumber: number;
     beatType: number;
     timestampMs: number;
 };
 
-// ビートグリッドデータを表す型
+/** ビートグリッドデータを表す型 */
 export type BeatGridData = {
     entries: BeatGridEntry[];
 };
 
-// ミキサーの1チャンネルを表す型
+/** ミキサーの1チャンネルを表す型 */
 export type MixerChannel = {
     sourceSelect: number;
     audioLevel: number;
@@ -55,7 +55,7 @@ export type MixerChannel = {
     crossfaderAssign: number;
 };
 
-// ミキサーデータを表す型
+/** ミキサーデータを表す型 */
 export type MixerData = {
     mixerId: number;
     mixerType: number;
