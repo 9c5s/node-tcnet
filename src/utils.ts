@@ -27,3 +27,42 @@ export const assert = (condition: boolean, message?: string): void => {
         throw new Error(`Assertion failed: ${message}`);
     }
 };
+
+// ネットワークアダプタのアドレス情報を表すインタフェース
+export interface NetworkAdapterAddress {
+    address: string;
+    netmask: string;
+    family: "IPv4" | "IPv6";
+    mac: string;
+    internal: boolean;
+    cidr: string | null;
+    scopeid?: number;
+}
+
+// ネットワークアダプタの情報を表すインタフェース
+export interface NetworkAdapterInfo {
+    name: string;
+    addresses: NetworkAdapterAddress[];
+}
+
+// システム上のネットワークアダプタ一覧を返す
+export function listNetworkAdapters(): NetworkAdapterInfo[] {
+    const interfaces = networkInterfaces();
+    const result: NetworkAdapterInfo[] = [];
+    for (const [name, addrs] of Object.entries(interfaces)) {
+        if (!addrs) continue;
+        result.push({
+            name,
+            addresses: addrs.map((a) => ({
+                address: a.address,
+                netmask: a.netmask,
+                family: a.family as "IPv4" | "IPv6",
+                mac: a.mac,
+                internal: a.internal,
+                cidr: a.cidr,
+                ...(a.family === "IPv6" ? { scopeid: a.scopeid } : {}),
+            })),
+        });
+    }
+    return result;
+}
