@@ -385,6 +385,14 @@ listNetworkAdapters(): NetworkAdapterInfo[]
 
 `os.networkInterfaces()`をラップし、フィルタなしで全アダプタの情報を返す。
 
+### findIPv4Address
+
+```ts
+findIPv4Address(adapter: NetworkAdapterInfo): NetworkAdapterAddress | undefined
+```
+
+指定アダプタからnon-internalなIPv4アドレスを返す。該当なしの場合`undefined`を返す。
+
 ### NetworkAdapterInfo
 
 ネットワークアダプタの情報を表す型。

@@ -55,6 +55,7 @@ export class TCNetClient extends EventEmitter {
     private uptime = 0;
     private connected = false;
     private connectedHandler: (() => void) | null = null;
+    private connectedReject: ((reason?: unknown) => void) | null = null;
     private requests: Map<string, STORED_REQUEST> = new Map();
     private announcementInterval: NodeJS.Timeout | null = null;
     private broadcastSockets: Map<string, Socket> = new Map();
@@ -116,7 +117,7 @@ export class TCNetClient extends EventEmitter {
      */
     public async connect(): Promise<void> {
         // 二重呼び出し防止
-        if (this.broadcastSockets.size > 0 || this.broadcastSocket !== null) {
+        if (this.detectingAdapter || this.broadcastSockets.size > 0 || this.broadcastSocket !== null) {
             throw new Error("Already connected or connecting");
         }
 
@@ -198,7 +199,13 @@ export class TCNetClient extends EventEmitter {
             clearTimeout(this.detectionTimeoutId);
             this.detectionTimeoutId = null;
         }
+        // waitConnected()のPromiseが宙吊りにならないようrejectしてからnull化する
+        const rejectHandler = this.connectedReject;
         this.connectedHandler = null;
+        this.connectedReject = null;
+        if (rejectHandler) {
+            rejectHandler(new Error("Disconnected"));
+        }
 
         const closePromises: Promise<void>[] = [];
         for (const socket of this.broadcastSockets.values()) {
@@ -247,6 +254,7 @@ export class TCNetClient extends EventEmitter {
     private waitConnected(): Promise<void> {
         return new Promise((resolve, reject) => {
             this.connectedHandler = resolve;
+            this.connectedReject = reject;
 
             if (this.config.detectionTimeout > 0) {
                 this.connectTimeoutId = setTimeout(() => {
@@ -644,6 +652,9 @@ export class TCNetClient extends EventEmitter {
      * @param packet packet to broadcast
      */
     public async broadcastPacket(packet: nw.TCNetPacket): Promise<void> {
+        if (this.switching) {
+            throw new Error("Cannot broadcast while switching adapter");
+        }
         if (!this.broadcastSocket) {
             throw new Error("Adapter not yet selected");
         }
@@ -697,9 +708,9 @@ export class TCNetClient extends EventEmitter {
                 return;
             } catch (err) {
                 lastError = err instanceof Error ? err : new Error(String(err));
+                await this.disconnectSockets();
                 this.log?.debug(`switchAdapter retry ${attempt + 1}/${maxAttempts} failed: ${lastError.message}`);
                 if (attempt < maxAttempts - 1 && this.switching) {
-                    await this.disconnectSockets();
                     await new Promise((r) => setTimeout(r, this.config.switchRetryInterval));
                 }
             }

@@ -50,6 +50,9 @@ class TestTCNetClient extends TCNetClient {
             (this as any).connected = true;
         };
     }
+    public callWaitConnected(): Promise<void> {
+        return (this as any).waitConnected();
+    }
     public setRetryConfig(count: number, interval: number): void {
         (this as any).config.switchRetryCount = count;
         (this as any).config.switchRetryInterval = interval;
@@ -160,6 +163,18 @@ describe("disconnect()", () => {
         await client.disconnect();
 
         expect(client.getConnected()).toBe(false);
+    });
+
+    it("waitConnected中にdisconnectSockets()するとrejectされる", async () => {
+        const client = new TestTCNetClient();
+        client.initMockSockets();
+        client.setConfig({ detectionTimeout: 0 });
+
+        const waitPromise = client.callWaitConnected();
+
+        await client.callDisconnectSockets();
+
+        await expect(waitPromise).rejects.toThrow("Disconnected");
     });
 });
 
