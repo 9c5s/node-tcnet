@@ -10,7 +10,10 @@ import type {
     MixerData,
 } from "./types";
 
-/** TCNetメッセージタイプの列挙 */
+/**
+ * TCNetメッセージタイプの列挙
+ * @category Enums
+ */
 export enum TCNetMessageType {
     OptIn = 2,
     OptOut = 3,
@@ -27,7 +30,10 @@ export enum TCNetMessageType {
     Time = 254,
 }
 
-/** TCNetデータパケットタイプの列挙 */
+/**
+ * TCNetデータパケットタイプの列挙
+ * @category Enums
+ */
 export enum TCNetDataPacketType {
     MetricsData = 2,
     MetaData = 4,
@@ -38,7 +44,10 @@ export enum TCNetDataPacketType {
     MixerData = 150,
 }
 
-/** TCNetノードタイプの列挙 */
+/**
+ * TCNetノードタイプの列挙
+ * @category Enums
+ */
 export enum NodeType {
     Auto = 1,
     Master = 2,
@@ -52,7 +61,10 @@ interface TCNetReaderWriter {
     write(): void;
 }
 
-/** TCNetパケットの抽象基底クラス */
+/**
+ * TCNetパケットの抽象基底クラス
+ * @category Packets
+ */
 export abstract class TCNetPacket implements TCNetReaderWriter {
     buffer: Buffer;
     header: TCNetManagementHeader;
@@ -63,7 +75,10 @@ export abstract class TCNetPacket implements TCNetReaderWriter {
     abstract type(): number;
 }
 
-/** TCNet管理ヘッダー (全パケット共通の24バイトヘッダー) */
+/**
+ * TCNet管理ヘッダー (全パケット共通の24バイトヘッダー)
+ * @category Packets
+ */
 export class TCNetManagementHeader implements TCNetReaderWriter {
     static MAJOR_VERSION = 3;
     static MAGIC_HEADER = "TCN";
@@ -120,7 +135,10 @@ export class TCNetManagementHeader implements TCNetReaderWriter {
     }
 }
 
-/** TCNet OptInパケット (ネットワーク参加通知) */
+/**
+ * TCNet OptInパケット (ネットワーク参加通知)
+ * @category Packets
+ */
 export class TCNetOptInPacket extends TCNetPacket {
     nodeCount: number;
     nodeListenerPort: number;
@@ -174,7 +192,10 @@ export class TCNetOptInPacket extends TCNetPacket {
     }
 }
 
-/** TCNet OptOutパケット (ネットワーク離脱通知) */
+/**
+ * TCNet OptOutパケット (ネットワーク離脱通知)
+ * @category Packets
+ */
 export class TCNetOptOutPacket extends TCNetPacket {
     nodeCount: number;
     nodeListenerPort: number;
@@ -207,7 +228,10 @@ export class TCNetOptOutPacket extends TCNetPacket {
     }
 }
 
-/** TCNetレイヤーの再生状態を表す列挙 */
+/**
+ * TCNetレイヤーの再生状態を表す列挙
+ * @category Enums
+ */
 export enum TCNetLayerStatus {
     IDLE = 0,
     PLAYING = 3,
@@ -221,7 +245,10 @@ export enum TCNetLayerStatus {
     HOLD = 11,
 }
 
-/** TCNet Statusパケット (ノードのレイヤー状態) */
+/**
+ * TCNet Statusパケット (ノードのレイヤー状態)
+ * @category Packets
+ */
 export class TCNetStatusPacket extends TCNetPacket {
     data: null | {
         nodeCount: number;
@@ -278,7 +305,10 @@ export class TCNetStatusPacket extends TCNetPacket {
     }
 }
 
-/** TCNet Requestパケット (データ要求) */
+/**
+ * TCNet Requestパケット (データ要求)
+ * @category Packets
+ */
 export class TCNetRequestPacket extends TCNetPacket {
     dataType: number;
     layer: number;
@@ -312,14 +342,20 @@ export class TCNetRequestPacket extends TCNetPacket {
     }
 }
 
-/** TCNetタイムコードの状態を表す列挙 */
+/**
+ * TCNetタイムコードの状態を表す列挙
+ * @category Enums
+ */
 export enum TCNetTimecodeState {
     Stopped = 0,
     Running = 1,
     ForceReSync = 2,
 }
 
-/** TCNetタイムコードデータ */
+/**
+ * TCNetタイムコードデータ
+ * @category Packets
+ */
 export class TCNetTimecode {
     mode: number;
     state: TCNetTimecodeState;
@@ -343,7 +379,10 @@ export class TCNetTimecode {
     }
 }
 
-/** Timeパケットの1レイヤー分のデータ */
+/**
+ * Timeパケットの1レイヤー分のデータ
+ * @category Types
+ */
 export type TCNetTimePacketLayer = {
     currentTimeMillis: number;
     totalTimeMillis: number;
@@ -352,7 +391,10 @@ export type TCNetTimePacketLayer = {
     onAir: number;
 };
 
-/** TCNet Timeパケット (レイヤーの時間情報) */
+/**
+ * TCNet Timeパケット (レイヤーの時間情報)
+ * @category Packets
+ */
 export class TCNetTimePacket extends TCNetPacket {
     private _layers: TCNetTimePacketLayer[] = new Array(8);
     private _generalSMPTEMode = 0;
@@ -412,7 +454,10 @@ export class TCNetTimePacket extends TCNetPacket {
     }
 }
 
-/** TCNetデータパケットの基底クラス */
+/**
+ * TCNetデータパケットの基底クラス
+ * @category Data Packets
+ */
 export class TCNetDataPacket extends TCNetPacket {
     dataType: TCNetDataPacketType;
     /**
@@ -449,13 +494,19 @@ export class TCNetDataPacket extends TCNetPacket {
     }
 }
 
-/** TCNetレイヤーの同期マスター状態を表す列挙 */
+/**
+ * TCNetレイヤーの同期マスター状態を表す列挙
+ * @category Enums
+ */
 export enum TCNetLayerSyncMaster {
     Slave = 0,
     Master = 1,
 }
 
-/** メトリクスデータパケット (BPM/速度/位置等) */
+/**
+ * メトリクスデータパケット (BPM/速度/位置等)
+ * @category Data Packets
+ */
 export class TCNetDataPacketMetrics extends TCNetDataPacket {
     data: {
         state: TCNetLayerStatus;
@@ -499,7 +550,10 @@ export class TCNetDataPacketMetrics extends TCNetDataPacket {
     }
 }
 
-/** メタデータパケット (トラック情報) */
+/**
+ * メタデータパケット (トラック情報)
+ * @category Data Packets
+ */
 export class TCNetDataPacketMetadata extends TCNetDataPacket {
     info: {
         trackArtist: string;
@@ -534,7 +588,10 @@ export class TCNetDataPacketMetadata extends TCNetDataPacket {
     }
 }
 
-/** CUEデータパケット (キューポイント情報) */
+/**
+ * CUEデータパケット (キューポイント情報)
+ * @category Data Packets
+ */
 export class TCNetDataPacketCUE extends TCNetDataPacket {
     data: CueData | null = null;
 
@@ -604,7 +661,10 @@ function parseWaveformBars(source: Buffer, dataStart: number, maxBytes?: number)
     return bars;
 }
 
-/** 小波形データパケット (1200バー固定) */
+/**
+ * 小波形データパケット (1200バー固定)
+ * @category Data Packets
+ */
 export class TCNetDataPacketSmallWaveForm extends TCNetDataPacket {
     data: WaveformData | null = null;
 
@@ -627,7 +687,10 @@ export class TCNetDataPacketSmallWaveForm extends TCNetDataPacket {
     }
 }
 
-/** ミキサーデータパケット (チャンネル/エフェクト状態) */
+/**
+ * ミキサーデータパケット (チャンネル/エフェクト状態)
+ * @category Data Packets
+ */
 export class TCNetDataPacketMixer extends TCNetDataPacket {
     data: MixerData | null = null;
 
@@ -696,7 +759,10 @@ export class TCNetDataPacketMixer extends TCNetDataPacket {
     }
 }
 
-/** ビートグリッドデータパケット (ビート位置情報) */
+/**
+ * ビートグリッドデータパケット (ビート位置情報)
+ * @category Data Packets
+ */
 export class TCNetDataPacketBeatGrid extends TCNetDataPacket {
     data: BeatGridData | null = null;
 
@@ -745,7 +811,10 @@ export class TCNetDataPacketBeatGrid extends TCNetDataPacket {
     }
 }
 
-/** 大波形データパケット (可変長、マルチパケット) */
+/**
+ * 大波形データパケット (可変長、マルチパケット)
+ * @category Data Packets
+ */
 export class TCNetDataPacketBigWaveForm extends TCNetDataPacket {
     data: WaveformData | null = null;
 
