@@ -14,46 +14,67 @@ import type {
  * TCNetメッセージタイプの列挙
  * @category Enums
  */
-export enum TCNetMessageType {
-    OptIn = 2,
-    OptOut = 3,
-    Status = 5,
-    TimeSync = 10,
-    Error = 13,
-    Request = 20,
-    ApplicationData = 30,
-    Control = 101,
-    Text = 128,
-    Keyboard = 132,
-    Data = 200,
-    File = 204,
-    Time = 254,
+export const TCNetMessageType = {
+    OptIn: 2,
+    OptOut: 3,
+    Status: 5,
+    TimeSync: 10,
+    Error: 13,
+    Request: 20,
+    ApplicationData: 30,
+    Control: 101,
+    Text: 128,
+    Keyboard: 132,
+    Data: 200,
+    File: 204,
+    Time: 254,
+} as const;
+/** TCNetメッセージタイプの値型 */
+export type TCNetMessageType = (typeof TCNetMessageType)[keyof typeof TCNetMessageType];
+
+/**
+ * as constオブジェクトから逆引きマップ (値→キー名) を生成する
+ * @param obj - 変換元のas constオブジェクト
+ * @returns 値をキー、名前を値とするマップ
+ */
+function createReverseMap<T extends Record<string, number>>(obj: T): Record<number, string> {
+    return Object.fromEntries(Object.entries(obj).map(([k, v]) => [v, k])) as Record<number, string>;
 }
+
+/**
+ * TCNetMessageTypeの数値から名前への逆引きマップ
+ * @category Enums
+ */
+export const TCNetMessageTypeName = createReverseMap(TCNetMessageType);
 
 /**
  * TCNetデータパケットタイプの列挙
  * @category Enums
  */
-export enum TCNetDataPacketType {
-    MetricsData = 2,
-    MetaData = 4,
-    BeatGridData = 8,
-    CUEData = 12,
-    SmallWaveFormData = 16,
-    BigWaveFormData = 32,
-    MixerData = 150,
-}
+export const TCNetDataPacketType = {
+    MetricsData: 2,
+    MetaData: 4,
+    BeatGridData: 8,
+    CUEData: 12,
+    SmallWaveFormData: 16,
+    BigWaveFormData: 32,
+    MixerData: 150,
+} as const;
+/** TCNetデータパケットタイプの値型 */
+export type TCNetDataPacketType = (typeof TCNetDataPacketType)[keyof typeof TCNetDataPacketType];
 
 /**
  * TCNetノードタイプの列挙
  * @category Enums
  */
-export enum NodeType {
-    Auto = 1,
-    Master = 2,
-    Slave = 4,
-    Repeater = 8,
-}
+export const NodeType = {
+    Auto: 1,
+    Master: 2,
+    Slave: 4,
+    Repeater: 8,
+} as const;
+/** TCNetノードタイプの値型 */
+export type NodeType = (typeof NodeType)[keyof typeof NodeType];
 
 /**
  * パケットの読み書きインタフェース
@@ -113,7 +134,7 @@ export class TCNetManagementHeader implements TCNetReaderWriter {
         this.minorVersion = this.buffer.readUInt8(3);
         assert(this.buffer.slice(4, 7).toString("ascii") == TCNetManagementHeader.MAGIC_HEADER);
 
-        this.messageType = this.buffer.readUInt8(7);
+        this.messageType = this.buffer.readUInt8(7) as TCNetMessageType;
         this.nodeName = this.buffer.slice(8, 16).toString("ascii").replace(/\0.*$/g, "");
         this.seq = this.buffer.readUInt8(16);
         this.nodeType = this.buffer.readUInt8(17);
@@ -235,18 +256,20 @@ export class TCNetOptOutPacket extends TCNetPacket {
  * TCNetレイヤーの再生状態を表す列挙
  * @category Enums
  */
-export enum TCNetLayerStatus {
-    IDLE = 0,
-    PLAYING = 3,
-    LOOPING = 4,
-    PAUSED = 5,
-    STOPPED = 6,
-    CUEDOWN = 7,
-    PLATTERDOWN = 8,
-    FFWD = 9,
-    FFRV = 10,
-    HOLD = 11,
-}
+export const TCNetLayerStatus = {
+    IDLE: 0,
+    PLAYING: 3,
+    LOOPING: 4,
+    PAUSED: 5,
+    STOPPED: 6,
+    CUEDOWN: 7,
+    PLATTERDOWN: 8,
+    FFWD: 9,
+    FFRV: 10,
+    HOLD: 11,
+} as const;
+/** TCNetレイヤーステータスの値型 */
+export type TCNetLayerStatus = (typeof TCNetLayerStatus)[keyof typeof TCNetLayerStatus];
 
 /**
  * TCNet Statusパケット (ノードのレイヤー状態)
@@ -279,7 +302,7 @@ export class TCNetStatusPacket extends TCNetPacket {
         for (let n = 0; n < 8; n++) {
             this.layers[n] = {
                 source: this.buffer.readUInt8(34 + n),
-                status: this.buffer.readUInt8(42 + n),
+                status: this.buffer.readUInt8(42 + n) as TCNetLayerStatus,
                 trackID: this.buffer.readUInt32LE(50 + n * 4),
                 name: this.buffer
                     .slice(172 + n * 16, 172 + (n + 1) * 16)
@@ -349,11 +372,13 @@ export class TCNetRequestPacket extends TCNetPacket {
  * TCNetタイムコードの状態を表す列挙
  * @category Enums
  */
-export enum TCNetTimecodeState {
-    Stopped = 0,
-    Running = 1,
-    ForceReSync = 2,
-}
+export const TCNetTimecodeState = {
+    Stopped: 0,
+    Running: 1,
+    ForceReSync: 2,
+} as const;
+/** TCNetタイムコードステートの値型 */
+export type TCNetTimecodeState = (typeof TCNetTimecodeState)[keyof typeof TCNetTimecodeState];
 
 /**
  * TCNetタイムコードデータ
@@ -374,7 +399,7 @@ export class TCNetTimecode {
      */
     read(buffer: Buffer, offset: number): void {
         this.mode = buffer.readUInt8(offset + 0);
-        this.state = buffer.readUInt8(offset + 1);
+        this.state = buffer.readUInt8(offset + 1) as TCNetTimecodeState;
         this.hours = buffer.readUInt8(offset + 2);
         this.minutes = buffer.readUInt8(offset + 3);
         this.seconds = buffer.readUInt8(offset + 4);
@@ -409,7 +434,7 @@ export class TCNetTimePacket extends TCNetPacket {
                 currentTimeMillis: this.buffer.readUInt32LE(24 + n * 4),
                 totalTimeMillis: this.buffer.readUInt32LE(56 + n * 4),
                 beatMarker: this.buffer.readUInt8(88 + n),
-                state: this.buffer.readUInt8(96 + n),
+                state: this.buffer.readUInt8(96 + n) as TCNetLayerStatus,
                 onAir: this.buffer.length > 154 ? this.buffer.readUInt8(154 + n) : 255,
             };
         }
@@ -470,7 +495,7 @@ export class TCNetDataPacket extends TCNetPacket {
 
     /** バッファからパケットデータを読み取る */
     read(): void {
-        this.dataType = this.buffer.readUInt8(24);
+        this.dataType = this.buffer.readUInt8(24) as TCNetDataPacketType;
         this.layer = this.buffer.readUInt8(25) - 1;
     }
     /** パケットデータをバッファに書き込む */
@@ -501,10 +526,12 @@ export class TCNetDataPacket extends TCNetPacket {
  * TCNetレイヤーの同期マスター状態を表す列挙
  * @category Enums
  */
-export enum TCNetLayerSyncMaster {
-    Slave = 0,
-    Master = 1,
-}
+export const TCNetLayerSyncMaster = {
+    Slave: 0,
+    Master: 1,
+} as const;
+/** TCNetレイヤー同期マスターの値型 */
+export type TCNetLayerSyncMaster = (typeof TCNetLayerSyncMaster)[keyof typeof TCNetLayerSyncMaster];
 
 /**
  * メトリクスデータパケット (BPM/速度/位置等)
@@ -527,8 +554,8 @@ export class TCNetDataPacketMetrics extends TCNetDataPacket {
     /** バッファからパケットデータを読み取る */
     read(): void {
         this.data = {
-            state: this.buffer.readUInt8(27),
-            syncMaster: this.buffer.readUInt8(29),
+            state: this.buffer.readUInt8(27) as TCNetLayerStatus,
+            syncMaster: this.buffer.readUInt8(29) as TCNetLayerSyncMaster,
             beatMarker: this.buffer.readUInt8(31),
             trackLength: this.buffer.readUInt32LE(32),
             currentPosition: this.buffer.readUInt32LE(36),

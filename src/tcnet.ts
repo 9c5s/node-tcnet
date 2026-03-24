@@ -14,7 +14,10 @@ type STORED_REQUEST = {
     assembler?: MultiPacketAssembler;
 };
 
-const MULTI_PACKET_TYPES = new Set([nw.TCNetDataPacketType.BigWaveFormData, nw.TCNetDataPacketType.BeatGridData]);
+const MULTI_PACKET_TYPES: Set<number> = new Set([
+    nw.TCNetDataPacketType.BigWaveFormData,
+    nw.TCNetDataPacketType.BeatGridData,
+]);
 
 /**
  * TCNetClientが使用するロガーインタフェース
@@ -406,7 +409,7 @@ export class TCNetClient extends EventEmitter {
             if (packet.length() !== -1 && packet.length() !== header.buffer.length) {
                 this.log?.debug(
                     `${
-                        nw.TCNetMessageType[header.messageType]
+                        nw.TCNetMessageTypeName[header.messageType]
                     } packet has the wrong length (expected: ${packet.length()}, received: ${header.buffer.length})`,
                 );
                 return null;
@@ -415,7 +418,9 @@ export class TCNetClient extends EventEmitter {
 
             return packet;
         } else {
-            this.log?.debug(`Unknown packet type: ${header.messageType} ${nw.TCNetMessageType[header.messageType]}`);
+            this.log?.debug(
+                `Unknown packet type: ${header.messageType} ${nw.TCNetMessageTypeName[header.messageType]}`,
+            );
         }
         return null;
     }
@@ -588,7 +593,7 @@ export class TCNetClient extends EventEmitter {
 
         packet.header.minorVersion = 5;
         packet.header.nodeId = this.config.nodeId;
-        packet.header.messageType = packet.type();
+        packet.header.messageType = packet.type() as nw.TCNetMessageType;
         packet.header.nodeName = this.config.nodeName;
         packet.header.seq = this.seq = (this.seq + 1) % 255;
         packet.header.nodeType = 0x04;
