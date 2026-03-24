@@ -78,19 +78,29 @@ export function waitForEvent<T = unknown>(emitter: EventEmitter, event: string, 
 const BRIDGE_PROCESS_NAME = "PRO DJ LINK Bridge.exe";
 
 /**
+ * tasklistからBridgeプロセスのPIDを取得する共通関数
+ * @returns PID。プロセスが見つからない場合はnull
+ */
+async function queryBridgePid(): Promise<number | null> {
+    return new Promise((resolve) => {
+        execFile("tasklist", ["/FI", `IMAGENAME eq ${BRIDGE_PROCESS_NAME}`, "/FO", "CSV", "/NH"], (err, stdout) => {
+            if (err) {
+                resolve(null);
+                return;
+            }
+            // CSV形式: "プロセス名","PID","セッション名","セッション#","メモリ使用量"
+            const match = stdout.match(/"[^"]*","(\d+)"/);
+            resolve(match ? parseInt(match[1], 10) : null);
+        });
+    });
+}
+
+/**
  * Bridgeプロセスが実行中かどうかを確認する
  * @returns 実行中ならtrue
  */
 export async function isBridgeRunning(): Promise<boolean> {
-    return new Promise((resolve) => {
-        execFile("tasklist", ["/FI", `IMAGENAME eq ${BRIDGE_PROCESS_NAME}`, "/FO", "CSV", "/NH"], (err, stdout) => {
-            if (err) {
-                resolve(false);
-                return;
-            }
-            resolve(stdout.includes(BRIDGE_PROCESS_NAME));
-        });
-    });
+    return (await queryBridgePid()) !== null;
 }
 
 /**
@@ -99,21 +109,11 @@ export async function isBridgeRunning(): Promise<boolean> {
  * @throws {Error} Bridgeプロセスが見つからない場合
  */
 export async function getBridgePid(): Promise<number> {
-    return new Promise((resolve, reject) => {
-        execFile("tasklist", ["/FI", `IMAGENAME eq ${BRIDGE_PROCESS_NAME}`, "/FO", "CSV", "/NH"], (err, stdout) => {
-            if (err) {
-                reject(new Error("Failed to get Bridge PID"));
-                return;
-            }
-            // CSV形式: "プロセス名","PID","セッション名","セッション#","メモリ使用量"
-            const match = stdout.match(/"[^"]*","(\d+)"/);
-            if (!match) {
-                reject(new Error("Bridge process not found in tasklist output"));
-                return;
-            }
-            resolve(parseInt(match[1], 10));
-        });
-    });
+    const pid = await queryBridgePid();
+    if (pid === null) {
+        throw new Error("Bridge process not found");
+    }
+    return pid;
 }
 
 /**
@@ -121,22 +121,27 @@ export async function getBridgePid(): Promise<number> {
  * Bridgeプロセスの初期化に時間がかかるため、リトライしながら検知する
  * @param timeoutMs - 全体のタイムアウト(ミリ秒)。デフォルト60秒
  */
+const BRIDGE_READY_ATTEMPT_TIMEOUT = 10_000;
+const BRIDGE_READY_RETRY_INTERVAL = 2_000;
+
 async function waitForBridgeReady(timeoutMs = 60_000): Promise<void> {
     const startTime = Date.now();
-    const attemptTimeout = 10_000;
 
     while (Date.now() - startTime < timeoutMs) {
-        const client = createTestClient({ detectionTimeout: attemptTimeout });
+        const client = createTestClient({ detectionTimeout: BRIDGE_READY_ATTEMPT_TIMEOUT });
         try {
             await client.connect();
-            await waitForEvent(client, "adapterSelected", attemptTimeout);
+            await waitForEvent(client, "adapterSelected", BRIDGE_READY_ATTEMPT_TIMEOUT);
             return; // 検知成功
-        } catch {
-            // Bridge初期化中の可能性がある。少し待ってリトライする
+        } catch (err) {
+            // Bridge初期化中の可能性がある。リトライする
+            const elapsed = Date.now() - startTime;
+            const msg = err instanceof Error ? err.message : String(err);
+            console.debug(`Bridge ready check failed (${elapsed}ms elapsed): ${msg}`);
         } finally {
             await client.disconnect();
         }
-        await new Promise((r) => setTimeout(r, 2_000));
+        await new Promise((r) => setTimeout(r, BRIDGE_READY_RETRY_INTERVAL));
     }
 
     throw new Error(`Bridge started but not responding on TCNet within ${timeoutMs / 1000}s`);
