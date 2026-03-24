@@ -776,12 +776,18 @@ export class TCNetDataPacketBigWaveForm extends TCNetDataPacket {
     }
 }
 
-/** コンストラクタを持つ型の汎用インタフェース */
+/**
+ * コンストラクタを持つ型の汎用インタフェース
+ * @internal
+ */
 export interface Constructable<T> {
     new (...args: unknown[]): T;
 }
 
-/** メッセージタイプからパケットクラスへのマッピング */
+/**
+ * メッセージタイプからパケットクラスへのマッピング
+ * @internal
+ */
 export const TCNetPackets: Record<TCNetMessageType, Constructable<TCNetPacket> | null> = {
     [TCNetMessageType.OptIn]: TCNetOptInPacket,
     [TCNetMessageType.OptOut]: TCNetOptOutPacket,
@@ -798,7 +804,10 @@ export const TCNetPackets: Record<TCNetMessageType, Constructable<TCNetPacket> |
     [TCNetMessageType.Time]: TCNetTimePacket,
 };
 
-/** データパケットタイプからデータパケットクラスへのマッピング */
+/**
+ * データパケットタイプからデータパケットクラスへのマッピング
+ * @internal
+ */
 export const TCNetDataPackets: Record<TCNetDataPacketType, typeof TCNetDataPacket | null> = {
     [TCNetDataPacketType.MetricsData]: TCNetDataPacketMetrics,
     [TCNetDataPacketType.MetaData]: TCNetDataPacketMetadata,
