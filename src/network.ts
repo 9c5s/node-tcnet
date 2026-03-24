@@ -79,6 +79,10 @@ export class TCNetManagementHeader implements TCNetReaderWriter {
     nodeOptions: number;
     timestamp: number;
 
+    /**
+     * TCNet管理ヘッダーを生成する
+     * @param buffer - パケットバッファ
+     */
     constructor(buffer: Buffer) {
         this.buffer = buffer;
     }
@@ -116,6 +120,7 @@ export class TCNetManagementHeader implements TCNetReaderWriter {
     }
 }
 
+/** TCNet OptInパケット (ネットワーク参加通知) */
 export class TCNetOptInPacket extends TCNetPacket {
     nodeCount: number;
     nodeListenerPort: number;
@@ -126,6 +131,7 @@ export class TCNetOptInPacket extends TCNetPacket {
     minorVersion: number;
     bugVersion: number;
 
+    /** バッファからパケットデータを読み取る */
     read(): void {
         this.nodeCount = this.buffer.readUInt16LE(24);
         this.nodeListenerPort = this.buffer.readUInt16LE(26);
@@ -136,6 +142,7 @@ export class TCNetOptInPacket extends TCNetPacket {
         this.minorVersion = this.buffer.readUInt8(65);
         this.bugVersion = this.buffer.readUInt8(66);
     }
+    /** パケットデータをバッファに書き込む */
     write(): void {
         assert(Buffer.from(this.vendorName, "ascii").length <= 16);
         assert(Buffer.from(this.appName, "ascii").length <= 16);
@@ -150,32 +157,51 @@ export class TCNetOptInPacket extends TCNetPacket {
         this.buffer.writeUInt8(this.bugVersion, 66);
     }
 
+    /**
+     * パケットのバイト長を返す
+     * @returns パケット長
+     */
     length(): number {
         return 68;
     }
 
+    /**
+     * メッセージタイプを返す
+     * @returns メッセージタイプ
+     */
     type(): number {
         return TCNetMessageType.OptIn;
     }
 }
 
+/** TCNet OptOutパケット (ネットワーク離脱通知) */
 export class TCNetOptOutPacket extends TCNetPacket {
     nodeCount: number;
     nodeListenerPort: number;
 
+    /** バッファからパケットデータを読み取る */
     read(): void {
         this.nodeCount = this.buffer.readUInt16LE(24);
         this.nodeListenerPort = this.buffer.readUInt16LE(26);
     }
+    /** パケットデータをバッファに書き込む */
     write(): void {
         this.buffer.writeUInt16LE(this.nodeCount, 24);
         this.buffer.writeUInt16LE(this.nodeListenerPort, 26);
     }
 
+    /**
+     * パケットのバイト長を返す
+     * @returns パケット長
+     */
     length(): number {
         return 28;
     }
 
+    /**
+     * メッセージタイプを返す
+     * @returns メッセージタイプ
+     */
     type(): number {
         return TCNetMessageType.OptOut;
     }
@@ -195,6 +221,7 @@ export enum TCNetLayerStatus {
     HOLD = 11,
 }
 
+/** TCNet Statusパケット (ノードのレイヤー状態) */
 export class TCNetStatusPacket extends TCNetPacket {
     data: null | {
         nodeCount: number;
@@ -210,6 +237,7 @@ export class TCNetStatusPacket extends TCNetPacket {
         name: string;
     }> = new Array(8);
 
+    /** バッファからパケットデータを読み取る */
     read(): void {
         this.data = {
             nodeCount: this.buffer.readUInt16LE(24),
@@ -230,25 +258,37 @@ export class TCNetStatusPacket extends TCNetPacket {
             };
         }
     }
+    /** パケットデータをバッファに書き込む */
     write(): void {
         throw new Error("not supported!");
     }
+    /**
+     * パケットのバイト長を返す
+     * @returns パケット長
+     */
     length(): number {
         return 300;
     }
+    /**
+     * メッセージタイプを返す
+     * @returns メッセージタイプ
+     */
     type(): number {
         return TCNetMessageType.Status;
     }
 }
 
+/** TCNet Requestパケット (データ要求) */
 export class TCNetRequestPacket extends TCNetPacket {
     dataType: number;
     layer: number;
 
+    /** バッファからパケットデータを読み取る */
     read(): void {
         this.dataType = this.buffer.readUInt8(24);
         this.layer = this.buffer.readUInt8(25);
     }
+    /** パケットデータをバッファに書き込む */
     write(): void {
         assert(0 <= this.dataType && this.dataType <= 255);
         assert(0 <= this.layer && this.layer <= 255);
@@ -256,9 +296,17 @@ export class TCNetRequestPacket extends TCNetPacket {
         this.buffer.writeUInt8(this.dataType, 24);
         this.buffer.writeUInt8(this.layer, 25);
     }
+    /**
+     * パケットのバイト長を返す
+     * @returns パケット長
+     */
     length(): number {
         return 26;
     }
+    /**
+     * メッセージタイプを返す
+     * @returns メッセージタイプ
+     */
     type(): number {
         return TCNetMessageType.Request;
     }
@@ -271,6 +319,7 @@ export enum TCNetTimecodeState {
     ForceReSync = 2,
 }
 
+/** TCNetタイムコードデータ */
 export class TCNetTimecode {
     mode: number;
     state: TCNetTimecodeState;
@@ -279,6 +328,11 @@ export class TCNetTimecode {
     seconds: number;
     frames: number;
 
+    /**
+     * バッファの指定オフセットからタイムコードを読み取る
+     * @param buffer - 読み取り元バッファ
+     * @param offset - 読み取り開始位置
+     */
     read(buffer: Buffer, offset: number): void {
         this.mode = buffer.readUInt8(offset + 0);
         this.state = buffer.readUInt8(offset + 1);
@@ -298,10 +352,12 @@ export type TCNetTimePacketLayer = {
     onAir: number;
 };
 
+/** TCNet Timeパケット (レイヤーの時間情報) */
 export class TCNetTimePacket extends TCNetPacket {
     private _layers: TCNetTimePacketLayer[] = new Array(8);
     private _generalSMPTEMode = 0;
 
+    /** バッファからパケットデータを読み取る */
     read(): void {
         for (let n = 0; n < 8; n++) {
             this._layers[n] = {
@@ -314,9 +370,14 @@ export class TCNetTimePacket extends TCNetPacket {
         }
         this._generalSMPTEMode = this.buffer.readUInt8(105);
     }
+    /** パケットデータをバッファに書き込む */
     write(): void {
         throw new Error("not supported!");
     }
+    /**
+     * パケットのバイト長を返す
+     * @returns パケット長
+     */
     length(): number {
         switch (this.buffer.length) {
             case 154:
@@ -326,19 +387,32 @@ export class TCNetTimePacket extends TCNetPacket {
                 return -1;
         }
     }
+    /**
+     * メッセージタイプを返す
+     * @returns メッセージタイプ
+     */
     type(): number {
         return TCNetMessageType.Time;
     }
 
+    /**
+     * 全レイヤーの時間情報を返す
+     * @returns レイヤーデータの配列
+     */
     get layers(): TCNetTimePacketLayer[] {
         return this._layers;
     }
 
+    /**
+     * 汎用SMPTEモードを返す
+     * @returns SMPTEモード値
+     */
     get generalSMPTEMode(): number {
         return this._generalSMPTEMode;
     }
 }
 
+/** TCNetデータパケットの基底クラス */
 export class TCNetDataPacket extends TCNetPacket {
     dataType: TCNetDataPacketType;
     /**
@@ -346,10 +420,12 @@ export class TCNetDataPacket extends TCNetPacket {
      */
     layer: number;
 
+    /** バッファからパケットデータを読み取る */
     read(): void {
         this.dataType = this.buffer.readUInt8(24);
         this.layer = this.buffer.readUInt8(25) - 1;
     }
+    /** パケットデータをバッファに書き込む */
     write(): void {
         assert(0 <= this.dataType && this.dataType <= 255);
         assert(0 <= this.layer && this.layer <= 255);
@@ -357,9 +433,17 @@ export class TCNetDataPacket extends TCNetPacket {
         this.buffer.writeUInt8(this.dataType, 24);
         this.buffer.writeUInt8(this.layer, 25);
     }
+    /**
+     * パケットのバイト長を返す
+     * @returns パケット長
+     */
     length(): number {
         return -1;
     }
+    /**
+     * メッセージタイプを返す
+     * @returns メッセージタイプ
+     */
     type(): number {
         return TCNetMessageType.Data;
     }
@@ -371,6 +455,7 @@ export enum TCNetLayerSyncMaster {
     Master = 1,
 }
 
+/** メトリクスデータパケット (BPM/速度/位置等) */
 export class TCNetDataPacketMetrics extends TCNetDataPacket {
     data: {
         state: TCNetLayerStatus;
@@ -385,6 +470,7 @@ export class TCNetDataPacketMetrics extends TCNetDataPacket {
         trackID: number;
     } | null = null;
 
+    /** バッファからパケットデータを読み取る */
     read(): void {
         this.data = {
             state: this.buffer.readUInt8(27),
@@ -400,14 +486,20 @@ export class TCNetDataPacketMetrics extends TCNetDataPacket {
         };
     }
 
+    /** パケットデータをバッファに書き込む */
     write(): void {
         throw new Error("not supported!");
     }
+    /**
+     * パケットのバイト長を返す
+     * @returns パケット長
+     */
     length(): number {
         return 122;
     }
 }
 
+/** メタデータパケット (トラック情報) */
 export class TCNetDataPacketMetadata extends TCNetDataPacket {
     info: {
         trackArtist: string;
@@ -416,6 +508,7 @@ export class TCNetDataPacketMetadata extends TCNetDataPacket {
         trackID: number;
     } | null = null;
 
+    /** バッファからパケットデータを読み取る */
     read(): void {
         if (this.header.minorVersion < 5) {
             throw new Error("Unsupported packet version");
@@ -428,17 +521,24 @@ export class TCNetDataPacketMetadata extends TCNetDataPacket {
             trackID: this.buffer.readUInt32LE(543),
         };
     }
+    /** パケットデータをバッファに書き込む */
     write(): void {
         throw new Error("not supported!");
     }
+    /**
+     * パケットのバイト長を返す
+     * @returns パケット長
+     */
     length(): number {
         return 548;
     }
 }
 
+/** CUEデータパケット (キューポイント情報) */
 export class TCNetDataPacketCUE extends TCNetDataPacket {
     data: CueData | null = null;
 
+    /** バッファからパケットデータを読み取る */
     read(): void {
         const loopInTime = this.buffer.readUInt32LE(42);
         const loopOutTime = this.buffer.readUInt32LE(46);
@@ -467,9 +567,14 @@ export class TCNetDataPacketCUE extends TCNetDataPacket {
         this.data = { loopInTime, loopOutTime, cues };
     }
 
+    /** パケットデータをバッファに書き込む */
     write(): void {
         throw new Error("not supported!");
     }
+    /**
+     * パケットのバイト長を返す
+     * @returns パケット長
+     */
     length(): number {
         return 436;
     }
@@ -480,6 +585,10 @@ export class TCNetDataPacketCUE extends TCNetDataPacket {
  * dataStart から source の末尾 (または dataStart + maxBytes の手前) まで
  * 2バイト単位で WaveformBar を生成して返す。
  * 奇数バイト境界への読み出しを防ぐため safeEnd は偶数バイトに切り捨てる。
+ * @param source - 読み取り元バッファ
+ * @param dataStart - データ開始オフセット
+ * @param maxBytes - 最大読み取りバイト数
+ * @returns 波形バーの配列
  */
 function parseWaveformBars(source: Buffer, dataStart: number, maxBytes?: number): WaveformBar[] {
     const bars: WaveformBar[] = [];
@@ -495,25 +604,34 @@ function parseWaveformBars(source: Buffer, dataStart: number, maxBytes?: number)
     return bars;
 }
 
+/** 小波形データパケット (1200バー固定) */
 export class TCNetDataPacketSmallWaveForm extends TCNetDataPacket {
     data: WaveformData | null = null;
 
+    /** バッファからパケットデータを読み取る */
     read(): void {
         // T5: バッファが 2400 バイトに満たない場合でもクラッシュしない
         this.data = { bars: parseWaveformBars(this.buffer, 42, 2400) };
     }
 
+    /** パケットデータをバッファに書き込む */
     write(): void {
         throw new Error("not supported!");
     }
+    /**
+     * パケットのバイト長を返す
+     * @returns パケット長
+     */
     length(): number {
         return 2442;
     }
 }
 
+/** ミキサーデータパケット (チャンネル/エフェクト状態) */
 export class TCNetDataPacketMixer extends TCNetDataPacket {
     data: MixerData | null = null;
 
+    /** バッファからパケットデータを読み取る */
     read(): void {
         // T6: 最大オフセット (channels[5] の crossfaderAssign = 245 + 13 = 258) を確認する
         if (this.buffer.length < 259) {
@@ -565,26 +683,41 @@ export class TCNetDataPacketMixer extends TCNetDataPacket {
         };
     }
 
+    /** パケットデータをバッファに書き込む */
     write(): void {
         throw new Error("not supported!");
     }
+    /**
+     * パケットのバイト長を返す
+     * @returns パケット長
+     */
     length(): number {
         return 270;
     }
 }
 
+/** ビートグリッドデータパケット (ビート位置情報) */
 export class TCNetDataPacketBeatGrid extends TCNetDataPacket {
     data: BeatGridData | null = null;
 
+    /** バッファからパケットデータを読み取る */
     read(): void {
         this.readFromOffset(42);
     }
 
-    // アセンブル済みバッファからのパース用
+    /**
+     * アセンブル済みバッファからビートグリッドをパースする
+     * @param assembled - 結合済みバッファ
+     */
     readAssembled(assembled: Buffer): void {
         this.readFromOffset(0, assembled);
     }
 
+    /**
+     * 指定オフセットからビートグリッドエントリを読み取る
+     * @param dataStart - データ開始オフセット
+     * @param buf - 読み取り元バッファ。省略時はthis.bufferを使用
+     */
     private readFromOffset(dataStart: number, buf?: Buffer): void {
         const source = buf ?? this.buffer;
         const entries: BeatGridEntry[] = [];
@@ -599,30 +732,45 @@ export class TCNetDataPacketBeatGrid extends TCNetDataPacket {
         this.data = { entries };
     }
 
+    /** パケットデータをバッファに書き込む */
     write(): void {
         throw new Error("not supported!");
     }
+    /**
+     * パケットのバイト長を返す
+     * @returns パケット長
+     */
     length(): number {
         return 2442;
     }
 }
 
+/** 大波形データパケット (可変長、マルチパケット) */
 export class TCNetDataPacketBigWaveForm extends TCNetDataPacket {
     data: WaveformData | null = null;
 
+    /** バッファからパケットデータを読み取る */
     read(): void {
         // T7: parseWaveformBars ヘルパーを使用して重複を排除する
         this.data = { bars: parseWaveformBars(this.buffer, 42) };
     }
 
-    // アセンブル済みバッファからのパース用
+    /**
+     * アセンブル済みバッファから波形データをパースする
+     * @param assembled - 結合済みバッファ
+     */
     readAssembled(assembled: Buffer): void {
         this.data = { bars: parseWaveformBars(assembled, 0) };
     }
 
+    /** パケットデータをバッファに書き込む */
     write(): void {
         throw new Error("not supported!");
     }
+    /**
+     * パケットのバイト長を返す
+     * @returns パケット長
+     */
     length(): number {
         return -1;
     }
