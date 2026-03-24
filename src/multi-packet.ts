@@ -1,9 +1,13 @@
-// BigWaveForm, BeatGrid のマルチパケットを組み立てるアセンブラ
+/** BigWaveFormとBeatGridのマルチパケットを組み立てるアセンブラ */
 export class MultiPacketAssembler {
     private packets: Map<number, Buffer> = new Map();
     private totalPackets = 0;
 
-    // パケットを追加し、全パケットが揃ったら true を返す
+    /**
+     * パケットを追加し、全パケットが揃ったらtrueを返す
+     * @param buffer - パケットのバッファ
+     * @returns 全パケットが揃った場合true
+     */
     add(buffer: Buffer): boolean {
         // T1: バッファが最小ヘッダサイズ未満なら不正パケットとして無視する
         if (buffer.length < 42) return false;
@@ -21,13 +25,16 @@ export class MultiPacketAssembler {
         return this.packets.size >= this.totalPackets;
     }
 
-    // packetNo 順にソートしてデータを結合する
+    /**
+     * packetNo順にソートしてデータを結合する
+     * @returns 結合されたバッファ
+     */
     assemble(): Buffer {
         const sorted = [...this.packets.entries()].sort((a, b) => a[0] - b[0]);
         return Buffer.concat(sorted.map(([, buf]) => buf));
     }
 
-    // 状態をリセットする
+    /** 状態をリセットする */
     reset(): void {
         this.packets.clear();
         this.totalPackets = 0;

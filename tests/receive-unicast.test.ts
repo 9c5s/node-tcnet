@@ -7,11 +7,9 @@ class TestTCNetClient extends TCNetClient {
         msg: Buffer,
         rinfo = { address: "127.0.0.1", port: 65023, family: "IPv4" as const, size: msg.length },
     ): void {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (this as any).receiveUnicast(msg, rinfo);
     }
     public simulateConnected(): void {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         (this as any).connected = true;
     }
 }
