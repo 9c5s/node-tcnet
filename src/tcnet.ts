@@ -8,7 +8,7 @@ const TCNET_BROADCAST_PORT = 60000;
 const TCNET_TIMESTAMP_PORT = 60001;
 
 type STORED_REQUEST = {
-    resolve: (value?: nw.TCNetDataPacket | PromiseLike<nw.TCNetDataPacket> | undefined) => void;
+    resolve: (value: nw.TCNetDataPacket | PromiseLike<nw.TCNetDataPacket>) => void;
     reject: (reason?: unknown) => void;
     timeout: NodeJS.Timeout;
     assembler?: MultiPacketAssembler;
@@ -64,7 +64,7 @@ export class TCNetClient extends EventEmitter {
     private broadcastSocket: Socket | null = null;
     private unicastSocket: Socket | null = null;
     private timestampSocket: Socket | null = null;
-    private server: RemoteInfo | null;
+    private server: RemoteInfo | null = null;
     private seq = 0;
     private uptime = 0;
     private connected = false;

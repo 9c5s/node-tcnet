@@ -69,8 +69,8 @@ export interface TCNetReaderWriter {
  * @category Packets
  */
 export abstract class TCNetPacket implements TCNetReaderWriter {
-    buffer: Buffer;
-    header: TCNetManagementHeader;
+    buffer!: Buffer;
+    header!: TCNetManagementHeader;
 
     abstract read(): void;
     abstract write(): void;
@@ -88,14 +88,14 @@ export class TCNetManagementHeader implements TCNetReaderWriter {
 
     buffer: Buffer;
 
-    nodeId: number;
-    minorVersion: number;
-    messageType: TCNetMessageType;
-    nodeName: string;
-    seq: number;
-    nodeType: number;
-    nodeOptions: number;
-    timestamp: number;
+    nodeId!: number;
+    minorVersion!: number;
+    messageType!: TCNetMessageType;
+    nodeName!: string;
+    seq!: number;
+    nodeType!: number;
+    nodeOptions!: number;
+    timestamp!: number;
 
     /**
      * TCNet管理ヘッダーを生成する
@@ -143,14 +143,14 @@ export class TCNetManagementHeader implements TCNetReaderWriter {
  * @category Packets
  */
 export class TCNetOptInPacket extends TCNetPacket {
-    nodeCount: number;
-    nodeListenerPort: number;
-    uptime: number;
-    vendorName: string;
-    appName: string;
-    majorVersion: number;
-    minorVersion: number;
-    bugVersion: number;
+    nodeCount!: number;
+    nodeListenerPort!: number;
+    uptime!: number;
+    vendorName!: string;
+    appName!: string;
+    majorVersion!: number;
+    minorVersion!: number;
+    bugVersion!: number;
 
     /** バッファからパケットデータを読み取る */
     read(): void {
@@ -200,8 +200,8 @@ export class TCNetOptInPacket extends TCNetPacket {
  * @category Packets
  */
 export class TCNetOptOutPacket extends TCNetPacket {
-    nodeCount: number;
-    nodeListenerPort: number;
+    nodeCount!: number;
+    nodeListenerPort!: number;
 
     /** バッファからパケットデータを読み取る */
     read(): void {
@@ -313,8 +313,8 @@ export class TCNetStatusPacket extends TCNetPacket {
  * @category Packets
  */
 export class TCNetRequestPacket extends TCNetPacket {
-    dataType: number;
-    layer: number;
+    dataType!: number;
+    layer!: number;
 
     /** バッファからパケットデータを読み取る */
     read(): void {
@@ -360,12 +360,12 @@ export enum TCNetTimecodeState {
  * @category Packets
  */
 export class TCNetTimecode {
-    mode: number;
-    state: TCNetTimecodeState;
-    hours: number;
-    minutes: number;
-    seconds: number;
-    frames: number;
+    mode!: number;
+    state!: TCNetTimecodeState;
+    hours!: number;
+    minutes!: number;
+    seconds!: number;
+    frames!: number;
 
     /**
      * バッファの指定オフセットからタイムコードを読み取る
@@ -462,11 +462,11 @@ export class TCNetTimePacket extends TCNetPacket {
  * @category Data Packets
  */
 export class TCNetDataPacket extends TCNetPacket {
-    dataType: TCNetDataPacketType;
+    dataType!: TCNetDataPacketType;
     /**
      * 0-indexed layer ID (0-7)
      */
-    layer: number;
+    layer!: number;
 
     /** バッファからパケットデータを読み取る */
     read(): void {
