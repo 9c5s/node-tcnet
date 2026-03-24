@@ -630,10 +630,15 @@ export class TCNetClient extends EventEmitter {
         optInPacket.bugVersion = 1;
 
         if (this.broadcastSocket) {
-            // 確定後: 単一ソケットで送信
-            await this.broadcastPacket(optInPacket);
+            // 確定後: 単一ソケットで直接送信 (公開APIのガードを経由しない)
+            await this.sendPacket(
+                optInPacket,
+                this.broadcastSocket,
+                TCNET_BROADCAST_PORT,
+                this.config.broadcastAddress,
+            );
             if (this.server) {
-                await this.sendServer(optInPacket);
+                await this.sendPacket(optInPacket, this.broadcastSocket, this.server.port, this.server.address);
             }
         } else {
             // 検出中: 全アダプタに並列送信
