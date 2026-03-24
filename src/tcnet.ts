@@ -120,35 +120,74 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * Disconnects from TCNet network
+     * ソケットをクローズしてインターバルを停止する (リスナーは維持する)
+     * switchAdapter() のようにリスナーを維持したまま切断する場合に使用する
      */
-    public disconnect(): Promise<void> {
+    private async disconnectSockets(): Promise<void> {
         clearInterval(this.announcementInterval);
-        this.removeAllListeners();
         this.connected = false;
-        return Promise.all([
-            this.broadcastSocket ? closeSocket(this.broadcastSocket) : Promise.resolve(),
-            this.unicastSocket ? closeSocket(this.unicastSocket) : Promise.resolve(),
-            this.timestampSocket ? closeSocket(this.timestampSocket) : Promise.resolve(),
-        ])
-            .catch((err) => {
-                const error = new Error("Error disconnecting from TCNet");
-                error.cause = err instanceof Error ? err : new Error(String(err));
-                this.log?.error(error);
-            })
-            .then(() => void 0);
+        this._selectedAdapter = null;
+        if (this._connectTimeoutId) {
+            clearTimeout(this._connectTimeoutId);
+            this._connectTimeoutId = null;
+        }
+        if (this._detectionTimeoutId) {
+            clearTimeout(this._detectionTimeoutId);
+            this._detectionTimeoutId = null;
+        }
+        this.connectedHandler = null;
+
+        const closePromises: Promise<void>[] = [];
+        for (const socket of this.broadcastSockets.values()) {
+            closePromises.push(closeSocket(socket));
+        }
+        for (const socket of this.timestampSockets.values()) {
+            closePromises.push(closeSocket(socket));
+        }
+        this.broadcastSockets.clear();
+        this.timestampSockets.clear();
+
+        if (this.broadcastSocket) {
+            closePromises.push(closeSocket(this.broadcastSocket));
+            this.broadcastSocket = null;
+        }
+        if (this.timestampSocket) {
+            closePromises.push(closeSocket(this.timestampSocket));
+            this.timestampSocket = null;
+        }
+        if (this.unicastSocket) {
+            closePromises.push(closeSocket(this.unicastSocket));
+            this.unicastSocket = null;
+        }
+
+        await Promise.all(closePromises).catch((err) => {
+            const error = new Error("Error disconnecting sockets");
+            error.cause = err instanceof Error ? err : new Error(String(err));
+            this.log?.error(error);
+        });
     }
 
     /**
-     * Waiting for unicast from a master
+     * TCNetネットワークから切断する
+     * ソケットを閉じ、全リスナーを削除する
+     */
+    public async disconnect(): Promise<void> {
+        this._switching = false;
+        await this.disconnectSockets();
+        this.removeAllListeners();
+    }
+
+    /**
+     * Masterからのユニキャストを待機する
      */
     private waitConnected(): Promise<void> {
         return new Promise((resolve, reject) => {
             this.connectedHandler = resolve;
 
-            setTimeout(() => {
+            this._connectTimeoutId = setTimeout(() => {
+                this._connectTimeoutId = null;
                 if (!this.connected) {
-                    this.disconnect();
+                    this.disconnectSockets();
                     reject(new Error("Timeout connecting to network"));
                 }
             }, this.config.requestTimeout);
