@@ -55,8 +55,11 @@ export enum NodeType {
     Repeater = 8,
 }
 
-/** パケットの読み書きインタフェース */
-interface TCNetReaderWriter {
+/**
+ * パケットの読み書きインタフェース
+ * @internal
+ */
+export interface TCNetReaderWriter {
     read(): void;
     write(): void;
 }

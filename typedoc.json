@@ -25,5 +25,6 @@
         "notExported": true,
         "invalidLink": true,
         "notDocumented": false
-    }
+    },
+    "treatValidationWarningsAsErrors": true
 }
