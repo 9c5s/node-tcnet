@@ -495,6 +495,9 @@ export class TCNetClient extends EventEmitter {
      * @param rinfo remoteinfo
      */
     private receiveTimestamp(msg: Buffer, _rinfo: RemoteInfo): void {
+        // アダプタ確定前はtimeイベントを発火しない
+        if (!this.connected) return;
+
         const mgmtHeader = new nw.TCNetManagementHeader(msg);
         mgmtHeader.read();
         if (mgmtHeader.messageType !== nw.TCNetMessageType.Time) {
@@ -552,23 +555,24 @@ export class TCNetClient extends EventEmitter {
      * @param packet Packet to send
      */
     public async sendServer(packet: nw.TCNetPacket): Promise<void> {
+        if (this._switching) {
+            throw new Error("Cannot send while switching adapter");
+        }
         if (this.server === null) {
             throw new Error("Server not yet discovered");
         }
         if (!this.broadcastSocket) {
-            throw new Error("Not connected");
+            throw new Error("Adapter not yet selected");
         }
 
         await this.sendPacket(packet, this.broadcastSocket, this.server.port, this.server.address);
     }
 
     /**
-     * Called every second to announce our app on the network
+     * 毎秒ネットワークに自アプリを告知する
+     * アダプタ確定後は単一ソケットで送信し、検出中は全アダプタに送信する
      */
     private async announceApp(): Promise<void> {
-        // マルチソケット検出中はbroadcastSocketが未確定のためスキップする
-        if (!this.broadcastSocket) return;
-
         const optInPacket = new nw.TCNetOptInPacket();
         optInPacket.nodeCount = 0;
         optInPacket.nodeListenerPort = this.config.unicastPort;
@@ -584,9 +588,19 @@ export class TCNetClient extends EventEmitter {
         optInPacket.majorVersion = 1;
         optInPacket.minorVersion = 1;
         optInPacket.bugVersion = 1;
-        await this.broadcastPacket(optInPacket);
-        if (this.server) {
-            await this.sendServer(optInPacket);
+
+        if (this.broadcastSocket) {
+            // 確定後: 単一ソケットで送信
+            await this.broadcastPacket(optInPacket);
+            if (this.server) {
+                await this.sendServer(optInPacket);
+            }
+        } else {
+            // 検出中: 全アダプタに送信
+            for (const [name, socket] of this.broadcastSockets) {
+                const broadcastAddr = interfaceAddress(name);
+                await this.sendPacket(optInPacket, socket, TCNET_BROADCAST_PORT, broadcastAddr);
+            }
         }
     }
 
@@ -597,7 +611,7 @@ export class TCNetClient extends EventEmitter {
      */
     public async broadcastPacket(packet: nw.TCNetPacket): Promise<void> {
         if (!this.broadcastSocket) {
-            throw new Error("Not connected");
+            throw new Error("Adapter not yet selected");
         }
         await this.sendPacket(packet, this.broadcastSocket, TCNET_BROADCAST_PORT, this.config.broadcastAddress);
     }
@@ -611,6 +625,11 @@ export class TCNetClient extends EventEmitter {
      */
     public requestData(dataType: number, layer: number): Promise<nw.TCNetDataPacket> {
         return new Promise((resolve, reject) => {
+            if (this._switching) {
+                reject(new Error("Cannot request while switching adapter"));
+                return;
+            }
+
             if (!Number.isInteger(layer) || layer < 0 || layer > 7) {
                 reject(new RangeError("layer must be an integer between 0 and 7"));
                 return;

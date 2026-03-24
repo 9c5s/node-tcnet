@@ -124,3 +124,37 @@ describe("disconnectSockets()", () => {
         expect(client.getConnected()).toBe(false);
     });
 });
+
+describe("ガード", () => {
+    it("アダプタ未確定時にbroadcastPacket()がエラー", async () => {
+        const client = new TestTCNetClient();
+        client.setConfig({ detectionTimeout: 100, unicastPort: uniquePort() });
+        await client.connect();
+        const nw = await import("../src/network");
+        const packet = new nw.TCNetOptInPacket();
+        await expect(client.broadcastPacket(packet)).rejects.toThrow();
+        await client.disconnect();
+    });
+
+    it("検出中はbroadcastイベントが発火しない", async () => {
+        const client = new TestTCNetClient();
+        client.setConfig({ detectionTimeout: 200, unicastPort: uniquePort() });
+        const handler = vi.fn();
+        await client.connect();
+        client.on("broadcast", handler);
+        await new Promise((r) => setTimeout(r, 100));
+        expect(handler).not.toHaveBeenCalled();
+        await client.disconnect();
+    });
+
+    it("検出中はtimeイベントが発火しない", async () => {
+        const client = new TestTCNetClient();
+        client.setConfig({ detectionTimeout: 200, unicastPort: uniquePort() });
+        const timeHandler = vi.fn();
+        await client.connect();
+        client.on("time", timeHandler);
+        await new Promise((r) => setTimeout(r, 100));
+        expect(timeHandler).not.toHaveBeenCalled();
+        await client.disconnect();
+    });
+});
