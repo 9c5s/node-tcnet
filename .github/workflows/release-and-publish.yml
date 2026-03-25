@@ -26,26 +26,26 @@ jobs:
       id-token: write # npm provenanceに必要
       packages: write # GitHub Packages publishに必要
     steps:
-      - name: リポジトリのチェックアウト
+      - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         # zizmor: ignore[artipacked] changesets-actionがgit pushするためcredentialsの永続化が必要
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Node.jsセットアップ
+      - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: 24.x
           cache: 'npm'
           registry-url: https://registry.npmjs.org
 
-      - name: 依存パッケージのインストール
+      - name: Install dependencies
         run: npm ci
 
-      - name: ビルド
+      - name: Build
         run: npm run build
 
-      - name: Changesetワークフロー実行
+      - name: Run Changesets
         id: changesets
         uses: changesets/action@6a0a831ff30acef54f2c6aa1cbbc1096b066edaf # v1.7.0
         env:
@@ -54,14 +54,14 @@ jobs:
           publish: npm run changeset publish
           createGithubReleases: true
 
-      - name: GitHub Packages用 Node.jsセットアップ
+      - name: Setup Node.js for GitHub Packages
         if: steps.changesets.outputs.published == 'true'
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: 24.x
           registry-url: https://npm.pkg.github.com
 
-      - name: GitHub Packagesにpublish
+      - name: Publish to GitHub Packages
         if: steps.changesets.outputs.published == 'true'
         run: npm publish --registry https://npm.pkg.github.com --provenance=false
         env:
