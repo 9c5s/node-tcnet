@@ -1,5 +1,27 @@
 # @9c5s/node-tcnet
 
+## 0.7.0
+
+### Minor Changes
+
+-   8e46d2d: ネットワークアダプタ自動検出・手動切り替え機能を追加
+
+    -   `connect()` が全 non-internal IPv4 アダプタで listen 開始し即 resolve するよう変更 (破壊的変更)
+    -   Master OptIn 検出で自動的にアダプタに収束
+    -   `switchAdapter()` によるリトライ付き手動アダプタ切り替え
+    -   `listNetworkAdapters()` / `findIPv4Address()` ヘルパー関数
+    -   `selectedAdapter` / `isConnected` プロパティ
+    -   `adapterSelected` / `detectionTimeout` イベント
+
+-   9ec051b: TypeScript 5.x モダナイゼーション: strict: true 移行、enum → as const オブジェクト変換、satisfies 適用
+-   b92e449: TypeDoc による API ドキュメント自動生成を導入
+
+### Patch Changes
+
+-   a2a6c07: test: 実機テストの開発フローへの組み込み (#33)
+-   b891db8: デフォルトの nodeName/vendorName/appName を現オーナー向けに修正
+-   b1e4c6a: ESLint 9 flat config 移行と eslint-plugin-jsdoc による JSDoc カバレッジ自動検証を導入
+
 ## 0.6.0
 
 ### Minor Changes
