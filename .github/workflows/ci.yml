@@ -20,29 +20,32 @@ jobs:
     permissions:
       contents: read # リポジトリのチェックアウトに必要
     steps:
-      - name: リポジトリのチェックアウト
+      - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           fetch-depth: 2
 
-      - name: Node.jsセットアップ
+      - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
         with:
           node-version: 24.x
           cache: 'npm'
 
-      - name: 依存パッケージのインストール
+      - name: Install dependencies
         run: npm ci
 
-      - name: ビルド
+      - name: Build
         run: npm run build
 
-      - name: Lint
-        run: npm run lint
+      - name: Test
+        run: npm run test
 
-      - name: フォーマットチェック
+      - name: Lint
+        run: npm run lint:ts
+
+      - name: Check formatting
         run: npm run format:check
 
-      - name: ドキュメントビルド
+      - name: Build docs
         run: npm run docs
