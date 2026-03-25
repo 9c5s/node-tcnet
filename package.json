@@ -1,6 +1,6 @@
 {
     "name": "@9c5s/node-tcnet",
-    "version": "0.6.0",
+    "version": "0.7.0",
     "description": "Implements the TC-Supply TCNet protocol used by ShowKontrol and ProDJLink Bridge app from Pioneer",
     "exports": {
         ".": {
