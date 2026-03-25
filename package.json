@@ -24,8 +24,9 @@
     "scripts": {
         "docs": "typedoc",
         "docs:watch": "typedoc --watch",
-        "test": "vitest run",
-        "test:watch": "vitest",
+        "test": "vitest run --config vitest.config.ts",
+        "test:e2e": "vitest run --config vitest.e2e.config.ts",
+        "test:watch": "vitest --config vitest.config.ts",
         "example": "node --import tsx examples",
         "build": "rm -rf dist && tsup && check-export-map",
         "watch": "tsc -b -w",
