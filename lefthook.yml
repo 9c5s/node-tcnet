@@ -33,7 +33,7 @@ pre-commit:
 
     - name: typecheck
       glob: "{**/*.ts,tsconfig.json}"
-      run: npx tsc --noEmit
+      run: npm run typecheck
 
     - name: test
       glob: "**/*.ts"

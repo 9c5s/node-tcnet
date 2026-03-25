@@ -1,6 +1,6 @@
 # node-tcnet
 
-> フォーク元: <https://github.com/chdxD1/node-tcnet>
+> フォーク元: <https://github.com/s0/node-tcnet>
 
 TCNetプロトコルのNode.js実装。Pioneer DJ / ShowKontrol / Event Imagineering GroupのTCNet仕様に準拠。
 

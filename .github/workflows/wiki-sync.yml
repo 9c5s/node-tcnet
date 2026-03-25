@@ -19,12 +19,12 @@ jobs:
     permissions:
       contents: write # GitHub Wikiリポジトリへのpushに必要
     steps:
-      - name: リポジトリのチェックアウト
+      - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
-      - name: GitHub Wikiへ同期
+      - name: Sync to GitHub Wiki
         uses: Andrew-Chen-Wang/github-wiki-action@50650fccf3a10f741995523cf9708c53cec8912a # v4
         with:
           path: docs/wiki
