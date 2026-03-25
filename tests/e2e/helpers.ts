@@ -79,6 +79,7 @@ const BRIDGE_PROCESS_NAME = "PRO DJ LINK Bridge.exe";
 
 /**
  * tasklistからBridgeプロセスのPIDを取得する共通関数
+ * Windows環境専用 (tasklist/taskkillに依存)
  * @returns PID。プロセスが見つからない場合はnull
  */
 async function queryBridgePid(): Promise<number | null> {
@@ -129,12 +130,14 @@ async function waitForBridgeReady(timeoutMs = 60_000): Promise<void> {
 
     while (Date.now() - startTime < timeoutMs) {
         const client = createTestClient({ detectionTimeout: BRIDGE_READY_ATTEMPT_TIMEOUT });
+        const adapterPromise = waitForEvent(client, "adapterSelected", BRIDGE_READY_ATTEMPT_TIMEOUT);
         try {
             await client.connect();
-            await waitForEvent(client, "adapterSelected", BRIDGE_READY_ATTEMPT_TIMEOUT);
+            await adapterPromise;
             return; // 検知成功
         } catch (err) {
-            // Bridge初期化中の可能性がある。リトライする
+            // connect()失敗時、adapterPromiseのタイマーが残るため未処理rejectを防止する
+            adapterPromise.catch(() => {});
             const elapsed = Date.now() - startTime;
             const msg = err instanceof Error ? err.message : String(err);
             console.debug(`Bridge ready check failed (${elapsed}ms elapsed): ${msg}`);
@@ -164,16 +167,24 @@ export async function startBridge(): Promise<{ pid: number; alreadyRunning: bool
         detached: true,
         stdio: "ignore",
     });
+    const pid = await new Promise<number>((resolve, reject) => {
+        child.once("error", (err) =>
+            reject(new Error(`Failed to start Bridge: ${config.bridgePath} (${err.message})`)),
+        );
+        child.once("spawn", () => {
+            if (!child.pid) {
+                reject(new Error(`Failed to start Bridge: ${config.bridgePath}`));
+                return;
+            }
+            resolve(child.pid);
+        });
+    });
     child.unref();
-
-    if (!child.pid) {
-        throw new Error(`Failed to start Bridge: ${config.bridgePath}`);
-    }
 
     // Bridge起動完了を待機 (TCNetプロトコルで検知)
     await waitForBridgeReady();
 
-    return { pid: child.pid, alreadyRunning: false };
+    return { pid, alreadyRunning: false };
 }
 
 /**

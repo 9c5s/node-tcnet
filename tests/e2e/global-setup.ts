@@ -13,7 +13,11 @@ export async function teardown(): Promise<void> {
 
     // テスト中に起動されたBridgeがまだ動いていれば停止する
     if (await isBridgeRunning()) {
-        const pid = await getBridgePid();
-        await stopBridge(pid);
+        try {
+            const pid = await getBridgePid();
+            await stopBridge(pid);
+        } catch {
+            // isBridgeRunningとgetBridgePidの間にBridgeが終了した場合は無視する
+        }
     }
 }

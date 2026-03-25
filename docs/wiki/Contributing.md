@@ -116,6 +116,7 @@ npm run test:e2e
 
 #### 前提条件
 
+- Windows環境であること(Bridgeプロセス管理にtasklist/taskkillを使用するため)。
 - [Pro DJ Link Bridge](https://www.pioneerdj.com/ja-jp/landing/pro-dj-link-bridge/)がインストール済みであること。
 - TCNet対応機器(CDJ等)がネットワーク上に存在すること。
 - テスト実行前にBridgeが停止していること(テストが自動起動する)。

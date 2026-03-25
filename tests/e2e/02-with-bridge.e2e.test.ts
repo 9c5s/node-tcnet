@@ -23,22 +23,27 @@ afterAll(async () => {
 
 describe("アダプタ自動検出・収束", () => {
     let client: TCNetClient;
+    let detectedAdapter: NetworkAdapterInfo;
+
+    beforeAll(async () => {
+        client = createTestClient();
+        const adapterPromise = waitForEvent<NetworkAdapterInfo>(client, "adapterSelected", 15_000);
+        await client.connect();
+        detectedAdapter = await adapterPromise;
+    });
 
     afterAll(async () => {
         if (client) await client.disconnect();
     });
 
-    it("connect()後にadapterSelectedイベントが発火する", async () => {
-        client = createTestClient();
-        await client.connect();
-        const adapter = await waitForEvent<NetworkAdapterInfo>(client, "adapterSelected", 15_000);
-        expect(adapter).toBeDefined();
-        expect(adapter.name).toBeTruthy();
+    it("adapterSelectedイベントが発火し、有効なアダプタ情報が渡される", () => {
+        expect(detectedAdapter).toBeDefined();
+        expect(detectedAdapter.name).toBeTruthy();
     });
 
     it("selectedAdapterがnon-null", () => {
         expect(client.selectedAdapter).not.toBeNull();
-        expect(client.selectedAdapter!.name).toBeTruthy();
+        expect(client.selectedAdapter!.name).toBe(detectedAdapter.name);
     });
 });
 
@@ -47,8 +52,9 @@ describe("broadcast/timeイベント受信", () => {
 
     beforeAll(async () => {
         client = createTestClient();
+        const adapterPromise = waitForEvent(client, "adapterSelected", 15_000);
         await client.connect();
-        await waitForEvent(client, "adapterSelected", 15_000);
+        await adapterPromise;
     });
 
     afterAll(async () => {
@@ -72,8 +78,9 @@ describe("requestData", () => {
 
     beforeAll(async () => {
         client = createTestClient({ requestTimeout: 10_000 });
+        const adapterPromise = waitForEvent(client, "adapterSelected", 15_000);
         await client.connect();
-        await waitForEvent(client, "adapterSelected", 15_000);
+        await adapterPromise;
     });
 
     afterAll(async () => {
@@ -94,8 +101,9 @@ describe("switchAdapter", () => {
 
     beforeAll(async () => {
         client = createTestClient();
+        const adapterPromise = waitForEvent(client, "adapterSelected", 15_000);
         await client.connect();
-        await waitForEvent(client, "adapterSelected", 15_000);
+        await adapterPromise;
     });
 
     afterAll(async () => {
