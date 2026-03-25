@@ -37,3 +37,6 @@ docs-dist/
 
 # Git worktrees
 .worktrees/
+
+# E2E test local config
+.env.e2e
