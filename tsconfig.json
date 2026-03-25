@@ -10,13 +10,10 @@
 
         // Type checking
         "lib": ["es2022", "DOM", "DOM.Iterable"],
-        "alwaysStrict": true,
+        "strict": true,
         "forceConsistentCasingInFileNames": true,
         "noFallthroughCasesInSwitch": true,
-        "noImplicitAny": true,
         "noImplicitReturns": true,
-        "noImplicitThis": true,
-        "strictNullChecks": true,
         "skipLibCheck": true,
 
         "module": "NodeNext",

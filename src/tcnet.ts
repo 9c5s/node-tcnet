@@ -8,13 +8,16 @@ const TCNET_BROADCAST_PORT = 60000;
 const TCNET_TIMESTAMP_PORT = 60001;
 
 type STORED_REQUEST = {
-    resolve: (value?: nw.TCNetDataPacket | PromiseLike<nw.TCNetDataPacket> | undefined) => void;
+    resolve: (value: nw.TCNetDataPacket | PromiseLike<nw.TCNetDataPacket>) => void;
     reject: (reason?: unknown) => void;
     timeout: NodeJS.Timeout;
     assembler?: MultiPacketAssembler;
 };
 
-const MULTI_PACKET_TYPES = new Set([nw.TCNetDataPacketType.BigWaveFormData, nw.TCNetDataPacketType.BeatGridData]);
+const MULTI_PACKET_TYPES: Set<number> = new Set([
+    nw.TCNetDataPacketType.BigWaveFormData,
+    nw.TCNetDataPacketType.BeatGridData,
+]);
 
 /**
  * TCNetClientが使用するロガーインタフェース
@@ -64,7 +67,7 @@ export class TCNetClient extends EventEmitter {
     private broadcastSocket: Socket | null = null;
     private unicastSocket: Socket | null = null;
     private timestampSocket: Socket | null = null;
-    private server: RemoteInfo | null;
+    private server: RemoteInfo | null = null;
     private seq = 0;
     private uptime = 0;
     private connected = false;
@@ -406,7 +409,7 @@ export class TCNetClient extends EventEmitter {
             if (packet.length() !== -1 && packet.length() !== header.buffer.length) {
                 this.log?.debug(
                     `${
-                        nw.TCNetMessageType[header.messageType]
+                        nw.TCNetMessageTypeName[header.messageType]
                     } packet has the wrong length (expected: ${packet.length()}, received: ${header.buffer.length})`,
                 );
                 return null;
@@ -415,7 +418,9 @@ export class TCNetClient extends EventEmitter {
 
             return packet;
         } else {
-            this.log?.debug(`Unknown packet type: ${header.messageType} ${nw.TCNetMessageType[header.messageType]}`);
+            this.log?.debug(
+                `Unknown packet type: ${header.messageType} ${nw.TCNetMessageTypeName[header.messageType]}`,
+            );
         }
         return null;
     }
@@ -588,7 +593,7 @@ export class TCNetClient extends EventEmitter {
 
         packet.header.minorVersion = 5;
         packet.header.nodeId = this.config.nodeId;
-        packet.header.messageType = packet.type();
+        packet.header.messageType = packet.type() as nw.TCNetMessageType;
         packet.header.nodeName = this.config.nodeName;
         packet.header.seq = this.seq = (this.seq + 1) % 255;
         packet.header.nodeType = 0x04;
