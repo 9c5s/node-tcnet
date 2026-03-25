@@ -37,9 +37,9 @@ export class TCNetConfiguration {
     unicastPort = 65023;
     applicationCode = 0xffff;
     nodeId = Math.floor(Math.random() * 0xffff);
-    nodeName = "TCNET.JS";
-    vendorName = "CHDXD1";
-    appName = "NODE-TCNET";
+    nodeName = "TCNet.js";
+    vendorName = "9c5s";
+    appName = "node-tcnet";
     broadcastInterface: string | null = null;
     broadcastAddress = "255.255.255.255";
     broadcastListeningAddress = "";
