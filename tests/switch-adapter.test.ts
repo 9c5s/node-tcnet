@@ -1,6 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import { TCNetClient } from "../src/tcnet";
 import { listNetworkAdapters } from "../src/utils";
+import { writeValidHeader, isolateXteaEnv } from "./helpers";
+
+isolateXteaEnv();
 
 function getFirstNonLoopbackAdapter(): string {
     const adapters = listNetworkAdapters();
@@ -53,6 +56,18 @@ class TestTCNetClient extends TCNetClient {
     public callWaitConnected(): Promise<void> {
         return (this as any).waitConnected();
     }
+    public simulateBroadcast(
+        msg: Buffer,
+        rinfo = { address: "192.168.0.10", port: 60000, family: "IPv4" as const, size: msg.length },
+    ): void {
+        (this as any).receiveBroadcast(msg, rinfo);
+    }
+    public simulateTimestamp(
+        msg: Buffer,
+        rinfo = { address: "192.168.0.10", port: 60001, family: "IPv4" as const, size: msg.length },
+    ): void {
+        (this as any).receiveTimestamp(msg, rinfo);
+    }
     public setRetryConfig(count: number, interval: number): void {
         (this as any).config.switchRetryCount = count;
         (this as any).config.switchRetryInterval = interval;
@@ -83,6 +98,18 @@ class TestTCNetClient extends TCNetClient {
     }
 }
 
+function createStatusBuffer(): Buffer {
+    const buffer = Buffer.alloc(300);
+    writeValidHeader(buffer, 5); // Status
+    return buffer;
+}
+
+function createTimeBuffer(): Buffer {
+    const buffer = Buffer.alloc(154);
+    writeValidHeader(buffer, 254); // Time
+    return buffer;
+}
+
 // テストごとにユニークなユニキャストポートを割り当てる
 let nextPort = 64000;
 function uniquePort(): number {
@@ -92,7 +119,12 @@ function uniquePort(): number {
 describe("connect() 新挙動", () => {
     it("即座にresolveする", async () => {
         const client = new TestTCNetClient();
-        client.setConfig({ detectionTimeout: 100, requestTimeout: 100, unicastPort: uniquePort() });
+        client.setConfig({
+            detectionTimeout: 100,
+            requestTimeout: 100,
+            unicastPort: uniquePort(),
+            nodeOptions: 0,
+        });
         await client.connect();
         expect(client.isConnected).toBe(false);
         expect(client.selectedAdapter).toBeNull();
@@ -101,21 +133,26 @@ describe("connect() 新挙動", () => {
 
     it("二重呼び出しでエラー", async () => {
         const client = new TestTCNetClient();
-        client.setConfig({ detectionTimeout: 100, unicastPort: uniquePort() });
+        client.setConfig({ detectionTimeout: 100, unicastPort: uniquePort(), nodeOptions: 0 });
         await client.connect();
         await expect(client.connect()).rejects.toThrow();
         await client.disconnect();
     });
 
     it("detectionTimeoutイベントが発火する", async () => {
-        const client = new TestTCNetClient();
-        client.setConfig({ detectionTimeout: 100, unicastPort: uniquePort() });
-        const handler = vi.fn();
-        await client.connect();
-        client.on("detectionTimeout", handler);
-        await new Promise((r) => setTimeout(r, 200));
-        expect(handler).toHaveBeenCalledTimes(1);
-        await client.disconnect();
+        vi.useFakeTimers();
+        try {
+            const client = new TestTCNetClient();
+            client.setConfig({ detectionTimeout: 100, unicastPort: uniquePort(), nodeOptions: 0 });
+            const handler = vi.fn();
+            await client.connect();
+            client.on("detectionTimeout", handler);
+            await vi.advanceTimersByTimeAsync(100);
+            expect(handler).toHaveBeenCalledTimes(1);
+            await client.disconnect();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it("selectedAdapterが初期状態でnull", async () => {
@@ -129,16 +166,21 @@ describe("connect() 新挙動", () => {
     });
 
     it("detectionTimeout後にdisconnect→connectで再接続できる", async () => {
-        const port = uniquePort();
-        const client = new TestTCNetClient();
-        client.setConfig({ detectionTimeout: 50, unicastPort: port });
-        await client.connect();
-        await new Promise((r) => setTimeout(r, 100));
-        await client.disconnect();
-        // disconnect後は同じポートを再利用可能
-        client.setConfig({ detectionTimeout: 50, unicastPort: port });
-        await expect(client.connect()).resolves.toBeUndefined();
-        await client.disconnect();
+        vi.useFakeTimers();
+        try {
+            const port = uniquePort();
+            const client = new TestTCNetClient();
+            client.setConfig({ detectionTimeout: 50, unicastPort: port });
+            await client.connect();
+            await vi.advanceTimersByTimeAsync(50);
+            await client.disconnect();
+            // disconnect後は同じポートを再利用可能
+            client.setConfig({ detectionTimeout: 50, unicastPort: port });
+            await expect(client.connect()).resolves.toBeUndefined();
+            await client.disconnect();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
 
@@ -196,34 +238,30 @@ describe("disconnectSockets()", () => {
 describe("ガード", () => {
     it("アダプタ未確定時にbroadcastPacket()がエラー", async () => {
         const client = new TestTCNetClient();
-        client.setConfig({ detectionTimeout: 100, unicastPort: uniquePort() });
-        await client.connect();
         const nw = await import("../src/network");
         const packet = new nw.TCNetOptInPacket();
-        await expect(client.broadcastPacket(packet)).rejects.toThrow();
-        await client.disconnect();
+        // broadcastSocketがnullなのでエラーになる
+        await expect(client.broadcastPacket(packet)).rejects.toThrow("Adapter not yet selected");
     });
 
-    it("検出中はbroadcastイベントが発火しない", async () => {
+    it("検出中はbroadcastイベントが発火しない", () => {
+        // 実ネットワークを使わずモック状態でテストする (フレークテスト対策)
         const client = new TestTCNetClient();
-        client.setConfig({ detectionTimeout: 200, unicastPort: uniquePort() });
         const handler = vi.fn();
-        await client.connect();
         client.on("broadcast", handler);
-        await new Promise((r) => setTimeout(r, 100));
+        // connected=falseのままStatusパケットをシミュレーションする
+        client.simulateBroadcast(createStatusBuffer());
         expect(handler).not.toHaveBeenCalled();
-        await client.disconnect();
     });
 
-    it("検出中はtimeイベントが発火しない", async () => {
+    it("検出中はtimeイベントが発火しない", () => {
+        // 実ネットワークを使わずモック状態でテストする (フレークテスト対策)
         const client = new TestTCNetClient();
-        client.setConfig({ detectionTimeout: 200, unicastPort: uniquePort() });
         const timeHandler = vi.fn();
-        await client.connect();
         client.on("time", timeHandler);
-        await new Promise((r) => setTimeout(r, 100));
+        // connected=falseのままTimeパケットをシミュレーションする
+        client.simulateTimestamp(createTimeBuffer());
         expect(timeHandler).not.toHaveBeenCalled();
-        await client.disconnect();
     });
 });
 
@@ -235,16 +273,15 @@ describe("switchAdapter() バリデーション", () => {
         await expect(client.switchAdapter("nonexistent_adapter_xyz_12345")).rejects.toThrow("does not exist");
     });
 
-    it("IPv4のないアダプタでエラー", async () => {
-        const adapters = listNetworkAdapters();
-        const ipv6Only = adapters.find(
-            (a) => a.addresses.length > 0 && !a.addresses.some((addr) => addr.family === "IPv4" && !addr.internal),
-        );
-        if (!ipv6Only) return;
+    const ipv6OnlyAdapter = listNetworkAdapters().find(
+        (a) => a.addresses.length > 0 && !a.addresses.some((addr) => addr.family === "IPv4" && !addr.internal),
+    );
+
+    it.skipIf(!ipv6OnlyAdapter)("IPv4のないアダプタでエラー", async () => {
         const client = new TestTCNetClient();
         client.initMockSockets();
         client.setConnected(true);
-        await expect(client.switchAdapter(ipv6Only.name)).rejects.toThrow("IPv4");
+        await expect(client.switchAdapter(ipv6OnlyAdapter!.name)).rejects.toThrow("IPv4");
     });
 });
 

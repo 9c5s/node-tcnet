@@ -4,7 +4,7 @@ import { TCNetTimePacket, TCNetDataPacketMetrics, TCNetDataPacketType } from "..
 import type { NetworkAdapterInfo } from "../../src/utils";
 import { createTestClient, waitForEvent, startBridge, stopBridge } from "./helpers";
 
-// Bridge起動済み環境でのE2Eテストである
+// Bridge起動済み環境でのE2Eテスト
 // アダプタ検出, パケット受信, データリクエスト, アダプタ切替を検証する
 
 let bridgeInfo: { pid: number; alreadyRunning: boolean };
