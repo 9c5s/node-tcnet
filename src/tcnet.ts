@@ -486,7 +486,7 @@ export class TCNetClient extends EventEmitter {
             }
 
             if (this.connected) {
-                this.handleAuthPacket(packet);
+                this.handleAuthPacket(packet, rinfo);
                 this.emit("broadcast", packet);
             }
         } else {
@@ -575,7 +575,7 @@ export class TCNetClient extends EventEmitter {
                 }
             }
         } else {
-            this.handleAuthPacket(packet);
+            this.handleAuthPacket(packet, rinfo);
             if (this.connected) {
                 this.emit("broadcast", packet);
             }
@@ -816,19 +816,28 @@ export class TCNetClient extends EventEmitter {
         return packet;
     }
 
+    /** 認証セッションをリセットする (再試行可能な状態に戻す) */
+    private resetAuthSession(): void {
+        this._authState = "none";
+        this.sessionToken = null;
+    }
+
     /**
      * 認証シーケンスを送信する
      * cmd=0 (hello) の後に50ms待機してcmd=2 (認証) を送信する。
      * 実機テストの結果、AppDataはbroadcastSocket(60000)経由でブロードキャストアドレスに送信する。
      */
     private async sendAuthSequence(): Promise<void> {
-        if (!this.server || !this.broadcastSocket || this.sessionToken === null) return;
+        if (!this.server || !this.broadcastSocket || this.sessionToken === null) {
+            this.resetAuthSession();
+            return;
+        }
 
         // xteaCiphertextの形式を検証する (16桁hex文字列)
         const ct = this.config.xteaCiphertext;
         if (!ct || !/^[0-9a-f]{16}$/i.test(ct)) {
             this.log?.debug(`Invalid xteaCiphertext (expected 16-digit hex): "${ct ?? ""}"`);
-            this._authState = "none";
+            this.resetAuthSession();
             return;
         }
 
@@ -839,10 +848,16 @@ export class TCNetClient extends EventEmitter {
         // 50ms待機してcmd=2 (認証) を送信
         await new Promise((r) => setTimeout(r, 50));
 
-        if (!this.server || !this.broadcastSocket) return;
+        if (!this.server || !this.broadcastSocket) {
+            this.resetAuthSession();
+            return;
+        }
 
         const clientIp = this.getClientIp();
-        if (!clientIp) return;
+        if (!clientIp) {
+            this.resetAuthSession();
+            return;
+        }
 
         const ciphertext = Buffer.from(ct, "hex");
         const payload = generateAuthPayload(this.sessionToken, clientIp, ciphertext);
@@ -854,9 +869,11 @@ export class TCNetClient extends EventEmitter {
      * 受信パケットから認証ハンドシェイクを処理する
      * AppData cmd=1でトークンを取得し、Error応答で認証成否を判定する
      * @param packet - 受信したパケット
+     * @param rinfo - 送信元情報
      */
-    private handleAuthPacket(packet: nw.TCNetPacket | null): void {
+    private handleAuthPacket(packet: nw.TCNetPacket | null, rinfo: RemoteInfo): void {
         if (!packet || !this.config.xteaCiphertext) return;
+        if (!this.server || rinfo.address !== this.server.address) return;
 
         if (packet instanceof nw.TCNetApplicationDataPacket) {
             if (packet.cmd === 1 && this.sessionToken === null && this._authState === "none") {
@@ -864,7 +881,7 @@ export class TCNetClient extends EventEmitter {
                 this._authState = "pending";
                 this.log?.debug(`Auth token received: 0x${packet.token.toString(16).padStart(8, "0")}`);
                 this.sendAuthSequence().catch((err) => {
-                    this._authState = "none";
+                    this.resetAuthSession();
                     const error = err instanceof Error ? err : new Error(String(err));
                     this.log?.error(error);
                 });

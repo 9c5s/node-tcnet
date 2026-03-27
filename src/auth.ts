@@ -52,6 +52,10 @@ export function fnv1aInt32(values: number[]): number {
  * @category Auth
  */
 export function generateAuthPayload(sessionToken: number, clientIp: string, xteaCiphertext?: Buffer): Buffer {
+    if (xteaCiphertext && xteaCiphertext.length !== 8) {
+        throw new Error(`Invalid XTEA ciphertext length: expected 8 bytes, got ${xteaCiphertext.length}`);
+    }
+
     const octets = clientIp.split(".").map(Number);
     if (octets.length !== 4 || octets.some((o) => !Number.isInteger(o) || o < 0 || o > 255)) {
         throw new Error(`Invalid IPv4 address: "${clientIp}"`);

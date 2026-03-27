@@ -942,7 +942,7 @@ export class TCNetErrorPacket extends TCNetPacket {
 
     /** バッファからパケットデータを読み取る */
     read(): void {
-        this.errorData = this.buffer.slice(24);
+        this.errorData = Buffer.from(this.buffer.slice(24));
     }
 
     /** パケットデータをバッファに書き込む */
@@ -1004,7 +1004,7 @@ export class TCNetApplicationDataPacket extends TCNetPacket {
         this.cmd = this.buffer.readUInt16LE(b + 18);
         this.listenerPort = this.buffer.readUInt16LE(b + 20);
         this.token = this.buffer.readUInt32LE(b + 22);
-        this.payload = this.buffer.slice(b + 26, b + 38);
+        this.payload = Buffer.from(this.buffer.slice(b + 26, b + 38));
     }
 
     /** パケットデータをバッファに書き込む */

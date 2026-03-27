@@ -244,6 +244,8 @@ describe("TCNetErrorPacket", () => {
 });
 
 // handleAuthPacketとsendAuthSequenceにアクセスするテストヘルパー
+const MASTER_RINFO = { address: "192.168.0.100", port: 65207, family: "IPv4", size: 0 };
+
 class AuthTestClient extends TCNetClient {
     constructor() {
         super();
@@ -251,9 +253,11 @@ class AuthTestClient extends TCNetClient {
         (this as any).config.xteaCiphertext = "0000000000000000";
         // sendAuthSequenceをモックしてネットワーク操作を回避する
         (this as any).sendAuthSequence = vi.fn().mockResolvedValue(undefined);
+        // serverをMasterのrinfoに設定する
+        (this as any).server = { address: MASTER_RINFO.address, port: MASTER_RINFO.port };
     }
-    public callHandleAuth(packet: any): void {
-        (this as any).handleAuthPacket(packet);
+    public callHandleAuth(packet: any, rinfo = MASTER_RINFO): void {
+        (this as any).handleAuthPacket(packet, rinfo);
     }
     public getSessionToken(): number | null {
         return (this as any).sessionToken;
@@ -389,6 +393,28 @@ describe("handleAuthPacket", () => {
         expect(client.authenticationState).toBe("none");
         expect(handler).not.toHaveBeenCalled();
     });
+
+    it("送信元IPがMasterと異なる場合はパケットを無視する", () => {
+        const client = new AuthTestClient();
+        const appData = createAppDataPacket(1, 0xdeec6dfc);
+        const otherRinfo = { address: "192.168.0.200", port: 65207, family: "IPv4", size: 0 };
+
+        client.callHandleAuth(appData, otherRinfo);
+
+        expect(client.authenticationState).toBe("none");
+        expect(client.getSessionToken()).toBeNull();
+    });
+
+    it("serverが未設定の場合はパケットを無視する", () => {
+        const client = new AuthTestClient();
+        (client as any).server = null;
+        const appData = createAppDataPacket(1, 0xdeec6dfc);
+
+        client.callHandleAuth(appData);
+
+        expect(client.authenticationState).toBe("none");
+        expect(client.getSessionToken()).toBeNull();
+    });
 });
 
 describe("xteaCiphertext設定の結合テスト", () => {
@@ -429,5 +455,21 @@ describe("generateAuthPayload clientIpバリデーション", () => {
 
     it("負のオクテットでErrorをthrowする", () => {
         expect(() => generateAuthPayload(0, "192.168.-1.10")).toThrow("Invalid IPv4");
+    });
+
+    it("xteaCiphertextが7バイトでErrorをthrowする", () => {
+        expect(() => generateAuthPayload(0, "192.168.0.10", Buffer.alloc(7))).toThrow(
+            "Invalid XTEA ciphertext length: expected 8 bytes, got 7",
+        );
+    });
+
+    it("xteaCiphertextが9バイトでErrorをthrowする", () => {
+        expect(() => generateAuthPayload(0, "192.168.0.10", Buffer.alloc(9))).toThrow(
+            "Invalid XTEA ciphertext length: expected 8 bytes, got 9",
+        );
+    });
+
+    it("xteaCiphertextが8バイトで正常に処理される", () => {
+        expect(() => generateAuthPayload(0, "192.168.0.10", Buffer.alloc(8))).not.toThrow();
     });
 });
