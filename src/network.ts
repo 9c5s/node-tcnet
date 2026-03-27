@@ -904,8 +904,11 @@ export class TCNetDataPacketArtwork extends TCNetDataPacket {
 
     /** バッファからパケットデータを読み取る */
     read(): void {
-        const clusterSize = this.buffer.readUInt32LE(38);
         const dataStart = 42;
+        if (this.buffer.length < dataStart) {
+            return;
+        }
+        const clusterSize = this.buffer.readUInt32LE(38);
         const end = Math.min(dataStart + clusterSize, this.buffer.length);
         this.data = { jpeg: Buffer.from(this.buffer.slice(dataStart, end)) };
     }

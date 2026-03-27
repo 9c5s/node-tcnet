@@ -360,6 +360,24 @@ describe("handleAuthPacket", () => {
         expect(handler).toHaveBeenCalledTimes(1);
     });
 
+    it("認証失敗後にsessionTokenがクリアされ再試行可能になる", () => {
+        const client = new AuthTestClient();
+
+        // 1回目: cmd=1でトークン受信 → pending
+        client.callHandleAuth(createAppDataPacket(1, 0xaabbccdd));
+        expect(client.authenticationState).toBe("pending");
+
+        // 認証失敗
+        client.callHandleAuth(createErrorPacket(0xff, 0xff, 0x0d));
+        expect(client.authenticationState).toBe("failed");
+        expect(client.getSessionToken()).toBeNull();
+
+        // 2回目: 新しいcmd=1を受け付ける
+        client.callHandleAuth(createAppDataPacket(1, 0x11223344));
+        expect(client.authenticationState).toBe("pending");
+        expect(client.getSessionToken()).toBe(0x11223344);
+    });
+
     it("xteaCiphertext未設定の場合は何も処理しない", () => {
         const client = new AuthTestClient();
         client.clearXteaCiphertext();

@@ -890,7 +890,11 @@ export class TCNetClient extends EventEmitter {
         if (!this.server || rinfo.address !== this.server.address) return;
 
         if (packet instanceof nw.TCNetApplicationDataPacket) {
-            if (packet.cmd === 1 && this.sessionToken === null && this._authState === "none") {
+            if (
+                packet.cmd === 1 &&
+                this.sessionToken === null &&
+                (this._authState === "none" || this._authState === "failed")
+            ) {
                 this.sessionToken = packet.token;
                 this._authState = "pending";
                 this.log?.debug(`Auth token received: 0x${packet.token.toString(16).padStart(8, "0")}`);
@@ -926,6 +930,7 @@ export class TCNetClient extends EventEmitter {
                     clearTimeout(this.authTimeoutId);
                     this.authTimeoutId = null;
                 }
+                this.sessionToken = null;
                 this._authState = "failed";
                 this.log?.debug("TCNASDP authentication failed");
                 this.emit("authFailed");
