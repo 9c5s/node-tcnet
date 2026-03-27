@@ -1,27 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
-import { TCNetClient } from "../src/tcnet";
 import * as nw from "../src/network";
-
-class TestTCNetClient extends TCNetClient {
-    public simulateUnicast(
-        msg: Buffer,
-        rinfo = { address: "127.0.0.1", port: 65023, family: "IPv4" as const, size: msg.length },
-    ): void {
-        (this as any).receiveUnicast(msg, rinfo);
-    }
-    public simulateConnected(): void {
-        (this as any).connected = true;
-    }
-}
+import { writeValidHeader, TestTCNetClient } from "./helpers";
 
 function createDataBuffer(dataType: number, layer: number, size: number): Buffer {
     const buffer = Buffer.alloc(size);
-    buffer.writeUInt16LE(1, 0);
-    buffer.writeUInt8(3, 2);
-    buffer.writeUInt8(5, 3);
-    buffer.write("TCN", 4, "ascii");
-    buffer.writeUInt8(200, 7);
-    buffer.writeUInt8(0x04, 17);
+    writeValidHeader(buffer, 200);
     buffer.writeUInt8(dataType, 24);
     buffer.writeUInt8(layer, 25);
     return buffer;

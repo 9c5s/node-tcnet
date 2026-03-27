@@ -37,10 +37,6 @@ function createHeader(buffer: Buffer): TCNetManagementHeader {
     return header;
 }
 
-// -----------------------------------------------------------------------
-// TCNetManagementHeader
-// -----------------------------------------------------------------------
-
 describe("TCNetManagementHeader", () => {
     it("正常なBufferからヘッダーフィールドをパースする", () => {
         // Arrange
@@ -110,7 +106,7 @@ describe("TCNetManagementHeader", () => {
         expect(() => {
             const header = new TCNetManagementHeader(buffer);
             header.read();
-        }).toThrow();
+        }).toThrow("Assertion failed");
     });
 
     it("マジックヘッダーが'TCN'でない場合はread()が例外を投げる", () => {
@@ -123,7 +119,7 @@ describe("TCNetManagementHeader", () => {
         expect(() => {
             const header = new TCNetManagementHeader(buffer);
             header.read();
-        }).toThrow();
+        }).toThrow("Assertion failed");
     });
 
     it("nodeNameが8バイトを超える場合はwrite()が例外を投げる", () => {
@@ -143,10 +139,6 @@ describe("TCNetManagementHeader", () => {
         expect(() => header.write()).toThrow();
     });
 });
-
-// -----------------------------------------------------------------------
-// TCNetOptInPacket
-// -----------------------------------------------------------------------
 
 describe("TCNetOptInPacket", () => {
     it("OptInパケットのフィールドをパースする", () => {
@@ -223,10 +215,6 @@ describe("TCNetOptInPacket", () => {
     });
 });
 
-// -----------------------------------------------------------------------
-// TCNetOptOutPacket
-// -----------------------------------------------------------------------
-
 describe("TCNetOptOutPacket", () => {
     it("OptOutパケットのフィールドをパースする", () => {
         // Arrange
@@ -277,10 +265,6 @@ describe("TCNetOptOutPacket", () => {
         expect(new TCNetOptOutPacket().type()).toBe(3);
     });
 });
-
-// -----------------------------------------------------------------------
-// TCNetStatusPacket
-// -----------------------------------------------------------------------
 
 describe("TCNetStatusPacket", () => {
     it("Statusパケットのdataフィールドをパースする", () => {
@@ -354,10 +338,6 @@ describe("TCNetStatusPacket", () => {
     });
 });
 
-// -----------------------------------------------------------------------
-// TCNetRequestPacket
-// -----------------------------------------------------------------------
-
 describe("TCNetRequestPacket", () => {
     it("Requestパケットのフィールドをパースする", () => {
         // Arrange
@@ -409,10 +389,6 @@ describe("TCNetRequestPacket", () => {
     });
 });
 
-// -----------------------------------------------------------------------
-// TCNetTimecode
-// -----------------------------------------------------------------------
-
 describe("TCNetTimecode", () => {
     it("バッファの指定オフセットからタイムコードをパースする", () => {
         // Arrange
@@ -461,10 +437,6 @@ describe("TCNetTimecode", () => {
         expect(tc.frames).toBe(0);
     });
 });
-
-// -----------------------------------------------------------------------
-// TCNetTimePacket
-// -----------------------------------------------------------------------
 
 describe("TCNetTimePacket", () => {
     it("154バイトバッファから8レイヤーの時間情報をパースする(onAirは255固定)", () => {
@@ -555,10 +527,6 @@ describe("TCNetTimePacket", () => {
     });
 });
 
-// -----------------------------------------------------------------------
-// TCNetDataPacketMetrics
-// -----------------------------------------------------------------------
-
 describe("TCNetDataPacketMetrics", () => {
     it("Metricsデータをパースする", () => {
         // Arrange
@@ -612,10 +580,6 @@ describe("TCNetDataPacketMetrics", () => {
     });
 });
 
-// -----------------------------------------------------------------------
-// TCNetDataPacket (layer 1-based → 0-based 変換)
-// -----------------------------------------------------------------------
-
 describe("TCNetDataPacket", () => {
     it("byte 25 = 1 のとき layer は 0 になる (1-based → 0-based 変換)", () => {
         // Arrange
@@ -655,10 +619,6 @@ describe("TCNetDataPacket", () => {
         expect(packet.layer).toBe(7);
     });
 });
-
-// -----------------------------------------------------------------------
-// TCNetDataPacketMetadata
-// -----------------------------------------------------------------------
 
 describe("TCNetDataPacketMetadata", () => {
     it("Metadataデータをパースする(minorVersion=5)", () => {

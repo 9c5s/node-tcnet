@@ -77,6 +77,14 @@ export type MixerChannel = {
 };
 
 /**
+ * アートワークデータを表す型
+ * @category Types
+ */
+export type ArtworkData = {
+    jpeg: Buffer;
+};
+
+/**
  * ミキサーデータを表す型
  * @category Types
  */

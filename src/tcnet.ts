@@ -3,6 +3,7 @@ import { EventEmitter } from "events";
 import * as nw from "./network";
 import { MultiPacketAssembler } from "./multi-packet";
 import { interfaceAddress, listNetworkAdapters, findIPv4Address, type NetworkAdapterInfo } from "./utils";
+import { generateAuthPayload, type AuthState } from "./auth";
 
 const TCNET_BROADCAST_PORT = 60000;
 const TCNET_TIMESTAMP_PORT = 60001;
@@ -17,6 +18,7 @@ type STORED_REQUEST = {
 const MULTI_PACKET_TYPES: Set<number> = new Set([
     nw.TCNetDataPacketType.BigWaveFormData,
     nw.TCNetDataPacketType.BeatGridData,
+    nw.TCNetDataPacketType.ArtworkData,
 ]);
 
 /**
@@ -47,6 +49,8 @@ export class TCNetConfiguration {
     detectionTimeout = 5000;
     switchRetryCount = 3;
     switchRetryInterval = 1000;
+    /** XTEA暗号文 (16桁hex文字列)。設定時はTCNASDP認証を実行する。環境変数 TCNET_XTEA_CIPHERTEXT で上書き可能 */
+    xteaCiphertext?: string = process.env.TCNET_XTEA_CIPHERTEXT;
 }
 
 /**
@@ -83,6 +87,8 @@ export class TCNetClient extends EventEmitter {
     private connectTimeoutId: NodeJS.Timeout | null = null;
     private detectionTimeoutId: NodeJS.Timeout | null = null;
     private detectingAdapter = false;
+    private _authState: AuthState = "none";
+    private sessionToken: number | null = null;
 
     /**
      * TCNetClientを初期化する
@@ -120,6 +126,14 @@ export class TCNetClient extends EventEmitter {
      */
     public get isConnected(): boolean {
         return this.connected;
+    }
+
+    /**
+     * TCNASDP認証状態を返す
+     * @returns 認証状態
+     */
+    public get authenticationState(): AuthState {
+        return this._authState;
     }
 
     /**
@@ -220,6 +234,8 @@ export class TCNetClient extends EventEmitter {
         this._selectedAdapter = null;
         this.server = null;
         this.detectingAdapter = false;
+        this._authState = "none";
+        this.sessionToken = null;
         if (this.connectTimeoutId) {
             clearTimeout(this.connectTimeoutId);
             this.connectTimeoutId = null;
@@ -470,6 +486,7 @@ export class TCNetClient extends EventEmitter {
             }
 
             if (this.connected) {
+                this.handleAuthPacket(packet);
                 this.emit("broadcast", packet);
             }
         } else {
@@ -558,6 +575,7 @@ export class TCNetClient extends EventEmitter {
                 }
             }
         } else {
+            this.handleAuthPacket(packet);
             if (this.connected) {
                 this.emit("broadcast", packet);
             }
@@ -587,8 +605,9 @@ export class TCNetClient extends EventEmitter {
     /**
      * パケットにヘッダー情報を設定する
      * @param packet - ヘッダーを設定するパケット
+     * @param nodeOptions - ノードオプション。省略時はxteaCiphertext有無で自動決定
      */
-    private fillHeader(packet: nw.TCNetPacket): void {
+    private fillHeader(packet: nw.TCNetPacket, nodeOptions?: number): void {
         packet.header = new nw.TCNetManagementHeader(packet.buffer);
 
         packet.header.minorVersion = 5;
@@ -597,7 +616,7 @@ export class TCNetClient extends EventEmitter {
         packet.header.nodeName = this.config.nodeName;
         packet.header.seq = this.seq = (this.seq + 1) % 255;
         packet.header.nodeType = 0x04;
-        packet.header.nodeOptions = 0;
+        packet.header.nodeOptions = nodeOptions ?? (this.config.xteaCiphertext ? 0x0007 : 0x0000);
         packet.header.timestamp = 0;
     }
 
@@ -607,13 +626,20 @@ export class TCNetClient extends EventEmitter {
      * @param socket - 送信に使用するソケット
      * @param port - 宛先ポート番号
      * @param address - 宛先アドレス
+     * @param nodeOptions - ノードオプション。省略時はconfig.nodeOptionsを使用
      * @returns 送信完了のPromise
      */
-    private sendPacket(packet: nw.TCNetPacket, socket: Socket, port: number, address: string): Promise<void> {
+    private sendPacket(
+        packet: nw.TCNetPacket,
+        socket: Socket,
+        port: number,
+        address: string,
+        nodeOptions?: number,
+    ): Promise<void> {
         return new Promise((resolve, reject) => {
             const buffer = Buffer.alloc(packet.length());
             packet.buffer = buffer;
-            this.fillHeader(packet);
+            this.fillHeader(packet, nodeOptions);
 
             packet.header.write();
             packet.write();
@@ -758,20 +784,133 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * 検出済みサーバーにデータリクエストを送信する
+     * クライアントのIPアドレスを取得する
+     * @returns IPアドレス文字列。未選択の場合はnull
+     */
+    private getClientIp(): string | null {
+        if (this._selectedAdapter) {
+            const ipv4 = findIPv4Address(this._selectedAdapter);
+            return ipv4?.address ?? null;
+        }
+        return null;
+    }
+
+    /**
+     * AppDataパケットを生成する
+     * @param cmd - コマンド番号
+     * @param token - セッショントークン
+     * @param payload - 認証ペイロード (12バイト)
+     * @returns 生成したパケット
+     */
+    private createAppDataPacket(cmd: number, token: number, payload: Buffer): nw.TCNetApplicationDataPacket {
+        const packet = new nw.TCNetApplicationDataPacket();
+        packet.dest = 0xffff;
+        packet.subType = 0x14;
+        packet.field1 = 1;
+        packet.field2 = 1;
+        packet.fixedValue = 0x0aa0;
+        packet.cmd = cmd;
+        packet.listenerPort = this.config.unicastPort;
+        packet.token = token;
+        packet.payload = payload;
+        return packet;
+    }
+
+    /**
+     * 認証シーケンスを送信する
+     * cmd=0 (hello) の後に50ms待機してcmd=2 (認証) を送信する。
+     * 実機テストの結果、AppDataはbroadcastSocket(60000)経由でブロードキャストアドレスに送信する。
+     */
+    private async sendAuthSequence(): Promise<void> {
+        if (!this.server || !this.broadcastSocket || this.sessionToken === null) return;
+
+        // xteaCiphertextの形式を検証する (16桁hex文字列)
+        const ct = this.config.xteaCiphertext;
+        if (!ct || !/^[0-9a-f]{16}$/i.test(ct)) {
+            this.log?.debug(`Invalid xteaCiphertext (expected 16-digit hex): "${ct ?? ""}"`);
+            this._authState = "none";
+            return;
+        }
+
+        // cmd=0 (hello) をブロードキャストアドレス:60000に送信
+        const hello = this.createAppDataPacket(0, 0, Buffer.alloc(12));
+        await this.sendPacket(hello, this.broadcastSocket, TCNET_BROADCAST_PORT, this.config.broadcastAddress);
+
+        // 50ms待機してcmd=2 (認証) を送信
+        await new Promise((r) => setTimeout(r, 50));
+
+        if (!this.server || !this.broadcastSocket) return;
+
+        const clientIp = this.getClientIp();
+        if (!clientIp) return;
+
+        const ciphertext = Buffer.from(ct, "hex");
+        const payload = generateAuthPayload(this.sessionToken, clientIp, ciphertext);
+        const auth = this.createAppDataPacket(2, this.sessionToken, payload);
+        await this.sendPacket(auth, this.broadcastSocket, TCNET_BROADCAST_PORT, this.config.broadcastAddress);
+    }
+
+    /**
+     * 受信パケットから認証ハンドシェイクを処理する
+     * AppData cmd=1でトークンを取得し、Error応答で認証成否を判定する
+     * @param packet - 受信したパケット
+     */
+    private handleAuthPacket(packet: nw.TCNetPacket | null): void {
+        if (!packet || !this.config.xteaCiphertext) return;
+
+        if (packet instanceof nw.TCNetApplicationDataPacket) {
+            if (packet.cmd === 1 && this.sessionToken === null && this._authState === "none") {
+                this.sessionToken = packet.token;
+                this._authState = "pending";
+                this.log?.debug(`Auth token received: 0x${packet.token.toString(16).padStart(8, "0")}`);
+                this.sendAuthSequence().catch((err) => {
+                    this._authState = "none";
+                    const error = err instanceof Error ? err : new Error(String(err));
+                    this.log?.error(error);
+                });
+            }
+        } else if (packet instanceof nw.TCNetErrorPacket) {
+            if (this._authState !== "pending" || packet.errorData.length < 3) return;
+
+            const b0 = packet.errorData[0];
+            const b1 = packet.errorData[1];
+            const b2 = packet.errorData[2];
+
+            if (b0 === 0xff && b1 === 0xff && b2 === 0xff) {
+                this._authState = "authenticated";
+                this.log?.debug("TCNASDP authentication succeeded");
+                this.emit("authenticated");
+            } else if (b0 === 0xff && b1 === 0xff && b2 === 0x0d) {
+                this._authState = "failed";
+                this.log?.debug("TCNASDP authentication failed");
+                this.emit("authFailed");
+            }
+        }
+    }
+
+    /**
+     * データリクエストをブロードキャストで送信する
+     *
+     * 実機テストの結果、RequestパケットはbroadcastSocket(60000)経由で
+     * ブロードキャストアドレス:60000に送信しnodeOptions=0x0000を使用する必要がある。
      * @param dataType - 要求するデータタイプ
      * @param layer - 要求するレイヤー (0-7)
      * @returns リクエスト応答のPromise
      */
     public requestData(dataType: number, layer: number): Promise<nw.TCNetDataPacket> {
         return new Promise((resolve, reject) => {
+            if (!Number.isInteger(layer) || layer < 0 || layer > 7) {
+                reject(new RangeError("layer must be an integer between 0 and 7"));
+                return;
+            }
+
             if (this.switching) {
                 reject(new Error("Cannot request while switching adapter"));
                 return;
             }
 
-            if (!Number.isInteger(layer) || layer < 0 || layer > 7) {
-                reject(new RangeError("layer must be an integer between 0 and 7"));
+            if (!this.broadcastSocket) {
+                reject(new Error("Adapter not yet selected"));
                 return;
             }
 
@@ -796,7 +935,14 @@ export class TCNetClient extends EventEmitter {
                 assembler: MULTI_PACKET_TYPES.has(dataType) ? new MultiPacketAssembler() : undefined,
             });
 
-            this.sendServer(request).catch((err) => {
+            // broadcastSocket(60000)からbroadcast:60000に送信、nodeOptions=0x0000
+            this.sendPacket(
+                request,
+                this.broadcastSocket,
+                TCNET_BROADCAST_PORT,
+                this.config.broadcastAddress,
+                0x0000,
+            ).catch((err) => {
                 if (this.requests.delete(key)) {
                     clearTimeout(timeout);
                     reject(err);

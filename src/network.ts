@@ -1,5 +1,6 @@
 import { assert } from "./utils";
 import type {
+    ArtworkData,
     CueData,
     CuePoint,
     WaveformBar,
@@ -58,6 +59,7 @@ export const TCNetDataPacketType = {
     CUEData: 12,
     SmallWaveFormData: 16,
     BigWaveFormData: 32,
+    ArtworkData: 128,
     MixerData: 150,
 } as const;
 /** TCNetデータパケットタイプの値型 */
@@ -876,6 +878,169 @@ export class TCNetDataPacketBigWaveForm extends TCNetDataPacket {
 }
 
 /**
+ * TCNet Fileパケット (MessageType=204、Artworkなどのファイルデータ転送用)
+ *
+ * Data (200) パケットと同一のバイトレイアウトを持ち、
+ * byte24=dataType, byte25=layerID, bytes30-41にマルチパケットヘッダーを含む。
+ * DataClusterSizeは2400B (Dataパケットの4800Bとは異なる)。
+ * @category Packets
+ */
+export class TCNetFilePacket extends TCNetDataPacket {
+    /**
+     * メッセージタイプを返す
+     * @returns メッセージタイプ (File=204)
+     */
+    type(): number {
+        return TCNetMessageType.File;
+    }
+}
+
+/**
+ * アートワークデータパケット (JPEGバイナリ、マルチパケット)
+ * @category Data Packets
+ */
+export class TCNetDataPacketArtwork extends TCNetDataPacket {
+    data: ArtworkData | null = null;
+
+    /** バッファからパケットデータを読み取る */
+    read(): void {
+        const clusterSize = this.buffer.readUInt32LE(38);
+        const dataStart = 42;
+        const end = Math.min(dataStart + clusterSize, this.buffer.length);
+        this.data = { jpeg: Buffer.from(this.buffer.slice(dataStart, end)) };
+    }
+
+    /**
+     * アセンブル済みバッファからJPEGデータを取得する
+     * @param assembled - 結合済みバッファ
+     */
+    readAssembled(assembled: Buffer): void {
+        this.data = { jpeg: Buffer.from(assembled) };
+    }
+
+    /** パケットデータをバッファに書き込む */
+    write(): void {
+        throw new Error("not supported!");
+    }
+
+    /**
+     * パケットのバイト長を返す
+     * @returns パケット長 (-1: 可変長)
+     */
+    length(): number {
+        return -1;
+    }
+}
+
+/**
+ * TCNet Errorパケット (エラー応答)
+ * @category Packets
+ */
+export class TCNetErrorPacket extends TCNetPacket {
+    /** エラーボディの生データ (offset 24以降) */
+    errorData!: Buffer;
+
+    /** バッファからパケットデータを読み取る */
+    read(): void {
+        this.errorData = this.buffer.slice(24);
+    }
+
+    /** パケットデータをバッファに書き込む */
+    write(): void {
+        throw new Error("not supported!");
+    }
+
+    /**
+     * パケットのバイト長を返す
+     * @returns パケット長 (-1: 可変長)
+     */
+    length(): number {
+        return -1;
+    }
+
+    /**
+     * メッセージタイプを返す
+     * @returns メッセージタイプ
+     */
+    type(): number {
+        return TCNetMessageType.Error;
+    }
+}
+
+/**
+ * TCNet ApplicationDataパケット (TCNASDP認証ハンドシェイク用)
+ * @category Packets
+ */
+export class TCNetApplicationDataPacket extends TCNetPacket {
+    /** 宛先ノードID (0xFFFF=全ノード) */
+    dest!: number;
+    /** サブタイプ (認証では0x14固定) */
+    subType!: number;
+    /** フィールド1 */
+    field1!: number;
+    /** フィールド2 */
+    field2!: number;
+    /** 固定識別値 (0x0AA0) */
+    fixedValue!: number;
+    /** コマンド (0=hello, 1=token応答, 2=認証) */
+    cmd!: number;
+    /** リスナーポート */
+    listenerPort!: number;
+    /** セッショントークン */
+    token!: number;
+    /** 認証ペイロード (12バイト) */
+    payload: Buffer = Buffer.alloc(12);
+
+    /** バッファからパケットデータを読み取る */
+    read(): void {
+        const b = 24;
+        this.dest = this.buffer.readUInt16LE(b);
+        this.subType = this.buffer.readUInt8(b + 2);
+        // b+3 ~ b+5: reserved
+        this.field1 = this.buffer.readUInt32LE(b + 6);
+        this.field2 = this.buffer.readUInt32LE(b + 10);
+        // b+14 ~ b+15: reserved
+        this.fixedValue = this.buffer.readUInt16LE(b + 16);
+        this.cmd = this.buffer.readUInt16LE(b + 18);
+        this.listenerPort = this.buffer.readUInt16LE(b + 20);
+        this.token = this.buffer.readUInt32LE(b + 22);
+        this.payload = this.buffer.slice(b + 26, b + 38);
+    }
+
+    /** パケットデータをバッファに書き込む */
+    write(): void {
+        const b = 24;
+        this.buffer.writeUInt16LE(this.dest, b);
+        this.buffer.writeUInt8(this.subType, b + 2);
+        // b+3 ~ b+5: reserved (0)
+        this.buffer.writeUInt32LE(this.field1, b + 6);
+        this.buffer.writeUInt32LE(this.field2, b + 10);
+        // b+14 ~ b+15: reserved (0)
+        this.buffer.writeUInt16LE(this.fixedValue, b + 16);
+        this.buffer.writeUInt16LE(this.cmd, b + 18);
+        this.buffer.writeUInt16LE(this.listenerPort, b + 20);
+        this.buffer.writeUInt32LE(this.token, b + 22);
+        this.payload.copy(this.buffer, b + 26, 0, 12);
+    }
+
+    /**
+     * パケットのバイト長を返す
+     * @returns パケット長
+     */
+    length(): number {
+        return 62;
+    }
+
+    /**
+     * メッセージタイプを返す
+     * @returns メッセージタイプ
+     */
+    type(): number {
+        return TCNetMessageType.ApplicationData;
+    }
+}
+
+/**
  * コンストラクタを持つ型の汎用インタフェース
  * @internal
  */
@@ -892,14 +1057,14 @@ export const TCNetPackets = {
     [TCNetMessageType.OptOut]: TCNetOptOutPacket,
     [TCNetMessageType.Status]: TCNetStatusPacket,
     [TCNetMessageType.TimeSync]: null, // 未実装
-    [TCNetMessageType.Error]: null, // 未実装
+    [TCNetMessageType.Error]: TCNetErrorPacket,
     [TCNetMessageType.Request]: TCNetRequestPacket,
-    [TCNetMessageType.ApplicationData]: null, // 未実装
+    [TCNetMessageType.ApplicationData]: TCNetApplicationDataPacket,
     [TCNetMessageType.Control]: null, // 未実装
     [TCNetMessageType.Text]: null, // 未実装
     [TCNetMessageType.Keyboard]: null, // 未実装
     [TCNetMessageType.Data]: TCNetDataPacket,
-    [TCNetMessageType.File]: null, // 未実装
+    [TCNetMessageType.File]: TCNetFilePacket,
     [TCNetMessageType.Time]: TCNetTimePacket,
 } as const satisfies Record<TCNetMessageType, Constructable<TCNetPacket> | null>;
 
@@ -914,5 +1079,6 @@ export const TCNetDataPackets = {
     [TCNetDataPacketType.CUEData]: TCNetDataPacketCUE,
     [TCNetDataPacketType.SmallWaveFormData]: TCNetDataPacketSmallWaveForm,
     [TCNetDataPacketType.BigWaveFormData]: TCNetDataPacketBigWaveForm,
+    [TCNetDataPacketType.ArtworkData]: TCNetDataPacketArtwork,
     [TCNetDataPacketType.MixerData]: TCNetDataPacketMixer,
 } as const satisfies Record<TCNetDataPacketType, typeof TCNetDataPacket | null>;
