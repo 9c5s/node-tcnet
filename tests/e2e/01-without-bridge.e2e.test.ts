@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createTestClient, waitForEvent } from "./helpers";
 
-// Bridge未起動環境でのクライアント動作を検証するE2Eテストである
+// Bridge未起動環境でのクライアント動作を検証するE2Eテスト
 // このテストはBridgeが起動していない状態でのみ正常に通過する
 describe("Bridge未起動テスト", () => {
     it("connect()が即resolveし、isConnected === false", async () => {
