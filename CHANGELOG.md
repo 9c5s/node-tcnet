@@ -1,5 +1,17 @@
 # @9c5s/node-tcnet
 
+## 0.8.0
+
+### Minor Changes
+
+-   6eb8cdb: TCNASDP 認証プロトコルと Artwork データ受信の実装
+
+    -   FNV-1a Int32 ハッシュによる認証ペイロード生成 (`generateAuthPayload`)
+    -   `xteaCiphertext` 設定時に TCNASDP 認証を自動実行し、全 8 データタイプの受信を有効化
+    -   File (Type=204) / Artwork (DataType=128) パケットのマルチパケット受信対応
+    -   Error (Type=13) / ApplicationData (Type=30) パケットの実装
+    -   認証パケットの送信元 IP 検証、認証シーケンス中断時の状態リセット
+
 ## 0.7.0
 
 ### Minor Changes
