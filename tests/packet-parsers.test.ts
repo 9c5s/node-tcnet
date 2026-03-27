@@ -136,7 +136,7 @@ describe("TCNetManagementHeader", () => {
         header.timestamp = 0;
 
         // Act / Assert
-        expect(() => header.write()).toThrow();
+        expect(() => header.write()).toThrow("Assertion failed");
     });
 });
 

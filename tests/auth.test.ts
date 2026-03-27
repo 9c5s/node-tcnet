@@ -417,6 +417,112 @@ describe("handleAuthPacket", () => {
     });
 });
 
+// sendAuthSequenceをモックせずに状態リセット動作を検証するヘルパー
+class AuthSequenceTestClient extends TCNetClient {
+    constructor(xteaCiphertext = "87d32058a31992c2") {
+        super();
+        (this as any).config.xteaCiphertext = xteaCiphertext;
+        (this as any).server = { address: MASTER_RINFO.address, port: MASTER_RINFO.port };
+    }
+    public getSessionToken(): number | null {
+        return (this as any).sessionToken;
+    }
+    public setSessionToken(token: number): void {
+        (this as any).sessionToken = token;
+    }
+    public setAuthState(state: string): void {
+        (this as any)._authState = state;
+    }
+    public callHandleAuth(packet: any, rinfo = MASTER_RINFO): void {
+        (this as any).handleAuthPacket(packet, rinfo);
+    }
+    public setBroadcastSocket(socket: any): void {
+        (this as any).broadcastSocket = socket;
+    }
+    public setSelectedAdapter(adapter: any): void {
+        (this as any)._selectedAdapter = adapter;
+    }
+}
+
+describe("sendAuthSequence 状態リセット", () => {
+    it("xteaCiphertextが不正な場合、authStateとsessionTokenがリセットされる", async () => {
+        const client = new AuthSequenceTestClient("invalid-hex");
+        client.setSessionToken(0xdeec6dfc);
+        client.setAuthState("pending");
+        client.setBroadcastSocket({
+            send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()),
+        });
+
+        // sendAuthSequenceを直接呼び出す
+        await (client as any).sendAuthSequence();
+
+        expect(client.authenticationState).toBe("none");
+        expect(client.getSessionToken()).toBeNull();
+    });
+
+    it("broadcastSocketがnullの場合、authStateとsessionTokenがリセットされる", async () => {
+        const client = new AuthSequenceTestClient();
+        client.setSessionToken(0xdeec6dfc);
+        client.setAuthState("pending");
+        // broadcastSocket未設定 (null)
+
+        await (client as any).sendAuthSequence();
+
+        expect(client.authenticationState).toBe("none");
+        expect(client.getSessionToken()).toBeNull();
+    });
+
+    it("sendPacketが例外を投げた場合、catchでauthStateとsessionTokenがリセットされる", async () => {
+        const client = new AuthSequenceTestClient();
+        client.setSessionToken(0xdeec6dfc);
+        client.setAuthState("pending");
+        client.setBroadcastSocket({
+            send: vi.fn(() => {
+                throw new Error("send failed");
+            }),
+        });
+        (client as any).config.broadcastAddress = "255.255.255.255";
+
+        // handleAuthPacket経由のcatchハンドラで呼ばれることを検証
+        const appData = createAppDataPacket(1, 0xdeec6dfc);
+        // authStateをnoneに戻してcmd=1受付条件を満たす
+        client.setAuthState("none");
+        (client as any).sessionToken = null;
+        client.callHandleAuth(appData);
+
+        // catchハンドラは非同期なのでtick待ち
+        await vi.waitFor(() => {
+            expect(client.authenticationState).toBe("none");
+            expect(client.getSessionToken()).toBeNull();
+        });
+    });
+
+    it("状態リセット後に再度cmd=1を受信すると認証を再試行できる", async () => {
+        const client = new AuthSequenceTestClient("invalid-hex");
+        client.setBroadcastSocket({
+            send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()),
+        });
+
+        // 1回目: cmd=1を受信 → sendAuthSequence → xteaCiphertext不正でリセット
+        const appData1 = createAppDataPacket(1, 0xaabbccdd);
+        client.callHandleAuth(appData1);
+        await vi.waitFor(() => {
+            expect(client.authenticationState).toBe("none");
+        });
+        expect(client.getSessionToken()).toBeNull();
+
+        // 2回目: 再度cmd=1を受信 → 新しいトークンで再試行される
+        const appData2 = createAppDataPacket(1, 0x11223344);
+        client.callHandleAuth(appData2);
+        // sendAuthSequenceが呼ばれてpendingになった後、xteaCiphertext不正でリセットされる
+        await vi.waitFor(() => {
+            expect(client.authenticationState).toBe("none");
+        });
+        // リセット後なので再度受付可能な状態
+        expect(client.getSessionToken()).toBeNull();
+    });
+});
+
 describe("xteaCiphertext設定の結合テスト", () => {
     it("xteaCiphertext未設定ではauth[4:12]がゼロ埋めになる", () => {
         const payload = generateAuthPayload(0xdeec6dfc, "192.168.0.10");
