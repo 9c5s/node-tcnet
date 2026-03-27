@@ -1009,6 +1009,8 @@ export class TCNetApplicationDataPacket extends TCNetPacket {
 
     /** パケットデータをバッファに書き込む */
     write(): void {
+        assert(this.payload.length === 12, "ApplicationData payload must be 12 bytes");
+
         const b = 24;
         this.buffer.writeUInt16LE(this.dest, b);
         this.buffer.writeUInt8(this.subType, b + 2);

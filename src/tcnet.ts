@@ -7,6 +7,7 @@ import { generateAuthPayload, type AuthState } from "./auth";
 
 const TCNET_BROADCAST_PORT = 60000;
 const TCNET_TIMESTAMP_PORT = 60001;
+const AUTH_RESPONSE_TIMEOUT = 5000;
 
 type STORED_REQUEST = {
     resolve: (value: nw.TCNetDataPacket | PromiseLike<nw.TCNetDataPacket>) => void;
@@ -89,6 +90,7 @@ export class TCNetClient extends EventEmitter {
     private detectingAdapter = false;
     private _authState: AuthState = "none";
     private sessionToken: number | null = null;
+    private authTimeoutId: NodeJS.Timeout | null = null;
 
     /**
      * TCNetClientを初期化する
@@ -234,8 +236,7 @@ export class TCNetClient extends EventEmitter {
         this._selectedAdapter = null;
         this.server = null;
         this.detectingAdapter = false;
-        this._authState = "none";
-        this.sessionToken = null;
+        this.resetAuthSession();
         if (this.connectTimeoutId) {
             clearTimeout(this.connectTimeoutId);
             this.connectTimeoutId = null;
@@ -481,6 +482,7 @@ export class TCNetClient extends EventEmitter {
                     this.log?.debug("Received optout from current Master");
                     if (this.server?.address == rinfo.address && this.server?.port == packet.nodeListenerPort) {
                         this.server = null;
+                        this.resetAuthSession();
                     }
                 }
             }
@@ -616,7 +618,7 @@ export class TCNetClient extends EventEmitter {
         packet.header.nodeName = this.config.nodeName;
         packet.header.seq = this.seq = (this.seq + 1) % 255;
         packet.header.nodeType = 0x04;
-        packet.header.nodeOptions = nodeOptions ?? (this.config.xteaCiphertext ? 0x0007 : 0x0000);
+        packet.header.nodeOptions = nodeOptions ?? (this.hasValidXteaCiphertext() ? 0x0007 : 0x0000);
         packet.header.timestamp = 0;
     }
 
@@ -816,10 +818,23 @@ export class TCNetClient extends EventEmitter {
         return packet;
     }
 
+    /**
+     * xteaCiphertextが有効な16桁hex文字列であるか検証する
+     * @returns 有効な場合true
+     */
+    private hasValidXteaCiphertext(): boolean {
+        const ct = this.config.xteaCiphertext;
+        return !!ct && /^[0-9a-f]{16}$/i.test(ct);
+    }
+
     /** 認証セッションをリセットする (再試行可能な状態に戻す) */
     private resetAuthSession(): void {
         this._authState = "none";
         this.sessionToken = null;
+        if (this.authTimeoutId) {
+            clearTimeout(this.authTimeoutId);
+            this.authTimeoutId = null;
+        }
     }
 
     /**
@@ -833,13 +848,12 @@ export class TCNetClient extends EventEmitter {
             return;
         }
 
-        // xteaCiphertextの形式を検証する (16桁hex文字列)
-        const ct = this.config.xteaCiphertext;
-        if (!ct || !/^[0-9a-f]{16}$/i.test(ct)) {
-            this.log?.debug(`Invalid xteaCiphertext (expected 16-digit hex): "${ct ?? ""}"`);
+        if (!this.hasValidXteaCiphertext()) {
+            this.log?.debug(`Invalid xteaCiphertext (expected 16-digit hex): "${this.config.xteaCiphertext ?? ""}"`);
             this.resetAuthSession();
             return;
         }
+        const ct = this.config.xteaCiphertext!;
 
         // cmd=0 (hello) をブロードキャストアドレス:60000に送信
         const hello = this.createAppDataPacket(0, 0, Buffer.alloc(12));
@@ -872,7 +886,7 @@ export class TCNetClient extends EventEmitter {
      * @param rinfo - 送信元情報
      */
     private handleAuthPacket(packet: nw.TCNetPacket | null, rinfo: RemoteInfo): void {
-        if (!packet || !this.config.xteaCiphertext) return;
+        if (!packet || !this.hasValidXteaCiphertext()) return;
         if (!this.server || rinfo.address !== this.server.address) return;
 
         if (packet instanceof nw.TCNetApplicationDataPacket) {
@@ -880,6 +894,12 @@ export class TCNetClient extends EventEmitter {
                 this.sessionToken = packet.token;
                 this._authState = "pending";
                 this.log?.debug(`Auth token received: 0x${packet.token.toString(16).padStart(8, "0")}`);
+                this.authTimeoutId = setTimeout(() => {
+                    if (this._authState === "pending") {
+                        this.log?.debug("TCNASDP authentication timed out");
+                        this.resetAuthSession();
+                    }
+                }, AUTH_RESPONSE_TIMEOUT);
                 this.sendAuthSequence().catch((err) => {
                     this.resetAuthSession();
                     const error = err instanceof Error ? err : new Error(String(err));
@@ -894,10 +914,18 @@ export class TCNetClient extends EventEmitter {
             const b2 = packet.errorData[2];
 
             if (b0 === 0xff && b1 === 0xff && b2 === 0xff) {
+                if (this.authTimeoutId) {
+                    clearTimeout(this.authTimeoutId);
+                    this.authTimeoutId = null;
+                }
                 this._authState = "authenticated";
                 this.log?.debug("TCNASDP authentication succeeded");
                 this.emit("authenticated");
             } else if (b0 === 0xff && b1 === 0xff && b2 === 0x0d) {
+                if (this.authTimeoutId) {
+                    clearTimeout(this.authTimeoutId);
+                    this.authTimeoutId = null;
+                }
                 this._authState = "failed";
                 this.log?.debug("TCNASDP authentication failed");
                 this.emit("authFailed");

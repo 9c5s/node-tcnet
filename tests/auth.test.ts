@@ -578,4 +578,110 @@ describe("generateAuthPayload clientIpバリデーション", () => {
     it("xteaCiphertextが8バイトで正常に処理される", () => {
         expect(() => generateAuthPayload(0, "192.168.0.10", Buffer.alloc(8))).not.toThrow();
     });
+
+    it("16進表記のオクテットでErrorをthrowする", () => {
+        expect(() => generateAuthPayload(0, "0x7f.0.0.1")).toThrow("Invalid IPv4");
+    });
+
+    it("科学記法のオクテットでErrorをthrowする", () => {
+        expect(() => generateAuthPayload(0, "1e2.0.0.1")).toThrow("Invalid IPv4");
+    });
+
+    it("空オクテット (連続ドット) でErrorをthrowする", () => {
+        expect(() => generateAuthPayload(0, "192.168..1")).toThrow("Invalid IPv4");
+    });
+});
+
+describe("認証タイムアウト", () => {
+    it("認証応答がない場合、タイムアウトでauthStateがリセットされる", async () => {
+        vi.useFakeTimers();
+        try {
+            const client = new AuthSequenceTestClient("invalid-hex");
+            client.setBroadcastSocket({
+                send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()),
+            });
+
+            // cmd=1を受信してpendingに遷移 (sendAuthSequenceはxteaCiphertext不正で即リセットされるが
+            // タイムアウトタイマーは先に設定される)
+            const appData = createAppDataPacket(1, 0xdeec6dfc);
+            client.callHandleAuth(appData);
+
+            // sendAuthSequenceが非同期でリセットするのを待つ
+            await vi.waitFor(() => {
+                expect(client.authenticationState).toBe("none");
+            });
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("pending状態で5秒経過するとタイムアウトしてリセットされる", async () => {
+        vi.useFakeTimers();
+        try {
+            const client = new AuthSequenceTestClient();
+            // sendAuthSequenceをモックして成功させる (pendingのまま残る状況を再現)
+            (client as any).sendAuthSequence = vi.fn().mockResolvedValue(undefined);
+            client.setBroadcastSocket({
+                send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()),
+            });
+
+            const appData = createAppDataPacket(1, 0xdeec6dfc);
+            client.callHandleAuth(appData);
+            expect(client.authenticationState).toBe("pending");
+
+            // 5秒経過でタイムアウト
+            await vi.advanceTimersByTimeAsync(5000);
+            expect(client.authenticationState).toBe("none");
+            expect(client.getSessionToken()).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("認証成功時にタイムアウトタイマーがクリアされる", async () => {
+        vi.useFakeTimers();
+        try {
+            const client = new AuthSequenceTestClient();
+            (client as any).sendAuthSequence = vi.fn().mockResolvedValue(undefined);
+            client.setBroadcastSocket({
+                send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()),
+            });
+
+            const appData = createAppDataPacket(1, 0xdeec6dfc);
+            client.callHandleAuth(appData);
+            expect(client.authenticationState).toBe("pending");
+
+            // 認証成功
+            const errorPkt = createErrorPacket(0xff, 0xff, 0xff);
+            client.callHandleAuth(errorPkt);
+            expect(client.authenticationState).toBe("authenticated");
+
+            // 5秒経過してもnoneにリセットされない
+            await vi.advanceTimersByTimeAsync(5000);
+            expect(client.authenticationState).toBe("authenticated");
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});
+
+describe("TCNetApplicationDataPacket.write() payload長検証", () => {
+    it("payloadが12バイト以外の場合write()がassertエラーを投げる", () => {
+        const buffer = Buffer.alloc(62);
+        writeValidHeader(buffer, TCNetMessageType.ApplicationData);
+        const packet = new TCNetApplicationDataPacket();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.dest = 0xffff;
+        packet.subType = 0x14;
+        packet.field1 = 1;
+        packet.field2 = 1;
+        packet.fixedValue = 0x0aa0;
+        packet.cmd = 0;
+        packet.listenerPort = 65023;
+        packet.token = 0;
+        packet.payload = Buffer.alloc(8); // 12バイト以外
+
+        expect(() => packet.write()).toThrow("ApplicationData payload must be 12 bytes");
+    });
 });

@@ -56,8 +56,11 @@ export function generateAuthPayload(sessionToken: number, clientIp: string, xtea
         throw new Error(`Invalid XTEA ciphertext length: expected 8 bytes, got ${xteaCiphertext.length}`);
     }
 
-    const octets = clientIp.split(".").map(Number);
-    if (octets.length !== 4 || octets.some((o) => !Number.isInteger(o) || o < 0 || o > 255)) {
+    if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(clientIp)) {
+        throw new Error(`Invalid IPv4 address: "${clientIp}"`);
+    }
+    const octets = clientIp.split(".").map((o) => Number.parseInt(o, 10));
+    if (octets.some((o) => o > 255)) {
         throw new Error(`Invalid IPv4 address: "${clientIp}"`);
     }
     const keyHash = fnv1aInt32(octets);
