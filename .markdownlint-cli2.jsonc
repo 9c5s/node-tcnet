@@ -4,6 +4,6 @@
         "no-duplicate-heading": false,
         "no-inline-html": false,
         "first-line-heading": false,
-        "table-column-style": false
-    }
+        "table-column-style": false,
+    },
 }
