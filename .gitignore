@@ -19,18 +19,13 @@ dist/
 !/.vscode/launch.json
 !/.vscode/settings.json
 
-# Configuration of prettier and ESLint
-!.eslintrc.js
-!.prettierrc.js
-!commitlint.config.mjs
-
 # Documentation
 docs/superpowers
 
-# Submodule use within monorepos
-.turbo/
-
 *.tsbuildinfo
+
+# Temporary files
+.tmp/
 
 # TypeDoc output
 docs-dist/

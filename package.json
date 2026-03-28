@@ -28,16 +28,16 @@
         "docs": "typedoc",
         "docs:watch": "typedoc --watch",
         "example": "node --import tsx examples",
-        "format:check": "prettier --check \"./**/*.{ts,js,mjs,json,jsonc}\"",
+        "format:check": "prettier --check \"./**/*.{ts,js,mjs,json,jsonc}\" \"!package-lock.json\"",
         "lint:md": "markdownlint-cli2 \"docs/wiki/**/*.md\" \"*.{md,MD}\" \"!CHANGELOG.md\"",
         "lint:md:fix": "markdownlint-cli2 --fix \"docs/wiki/**/*.md\" \"*.{md,MD}\" \"!CHANGELOG.md\"",
         "lint:text": "textlint \"docs/wiki/**/*.md\" \"README.MD\"",
         "lint:text:fix": "textlint --fix \"docs/wiki/**/*.md\" \"README.MD\"",
         "lint:ts": "eslint .",
-        "test": "vitest run --config vitest.config.ts",
-        "test:e2e": "vitest run --config vitest.e2e.config.ts",
-        "test:watch": "vitest --config vitest.config.ts",
-        "typecheck": "tsc --noEmit",
+        "test": "vitest run --project unit",
+        "test:e2e": "vitest run --project e2e --reporter verbose",
+        "test:watch": "vitest --project unit",
+        "typecheck": "tsgo --noEmit",
         "watch": "tsc -b -w"
     },
     "devDependencies": {
@@ -45,13 +45,14 @@
         "@changesets/parse": "^0.4.3",
         "@commitlint/cli": "^20.5.0",
         "@commitlint/config-conventional": "^20.5.0",
-        "@eslint/js": "^9.39.4",
+        "@eslint/js": "^10.0.1",
         "@types/node": "^25.5.0",
+        "@typescript/native-preview": "^7.0.0-dev.20260328.1",
         "check-export-map": "^1.3.1",
-        "eslint": "^9.39.4",
-        "eslint-plugin-jsdoc": "^62.8.0",
+        "eslint": "^10.1.0",
+        "eslint-plugin-jsdoc": "^62.8.1",
         "markdownlint-cli2": "^0.21.0",
-        "prettier": "^2.2.1",
+        "prettier": "^3.8.1",
         "textlint": "^15.5.2",
         "textlint-rule-no-mixed-zenkaku-and-hankaku-alphabet": "^1.0.1",
         "textlint-rule-preset-ja-technical-writing": "^12.0.2",
@@ -65,5 +66,61 @@
     "publishConfig": {
         "access": "public",
         "provenance": true
+    },
+    "commitlint": {
+        "extends": [
+            "@commitlint/config-conventional"
+        ],
+        "rules": {
+            "subject-case": [
+                0
+            ],
+            "scope-empty": [
+                2,
+                "always"
+            ]
+        }
+    },
+    "markdownlint-cli2": {
+        "config": {
+            "line-length": false,
+            "no-duplicate-heading": false,
+            "no-inline-html": false,
+            "first-line-heading": false,
+            "table-column-style": false
+        }
+    },
+    "textlint": {
+        "rules": {
+            "preset-ja-technical-writing": {
+                "sentence-length": false,
+                "max-comma": false,
+                "no-exclamation-question-mark": false,
+                "no-mix-dearu-desumasu": {
+                    "preferInBody": "である"
+                }
+            },
+            "no-mixed-zenkaku-and-hankaku-alphabet": true
+        }
+    },
+    "tsup": {
+        "entry": [
+            "src/index.ts"
+        ],
+        "format": [
+            "cjs",
+            "esm"
+        ],
+        "splitting": true,
+        "dts": true
+    },
+    "prettier": {
+        "semi": true,
+        "trailingComma": "all",
+        "singleQuote": false,
+        "printWidth": 120,
+        "tabWidth": 4,
+        "useTabs": false,
+        "endOfLine": "auto"
     }
 }
