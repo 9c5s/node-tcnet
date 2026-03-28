@@ -35,7 +35,7 @@
         "lint:text:fix": "textlint --fix \"docs/wiki/**/*.md\" \"README.MD\"",
         "lint:ts": "eslint .",
         "test": "vitest run --project unit",
-        "test:e2e": "vitest run --project e2e",
+        "test:e2e": "vitest run --project e2e --reporter verbose",
         "test:watch": "vitest --project unit",
         "typecheck": "tsgo --noEmit",
         "watch": "tsc -b -w"
