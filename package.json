@@ -34,9 +34,9 @@
         "lint:text": "textlint \"docs/wiki/**/*.md\" \"README.MD\"",
         "lint:text:fix": "textlint --fix \"docs/wiki/**/*.md\" \"README.MD\"",
         "lint:ts": "eslint .",
-        "test": "vitest run --config vitest.config.ts",
-        "test:e2e": "vitest run --config vitest.e2e.config.ts",
-        "test:watch": "vitest --config vitest.config.ts",
+        "test": "vitest run --project unit",
+        "test:e2e": "vitest run --project e2e",
+        "test:watch": "vitest --project unit",
         "typecheck": "tsgo --noEmit",
         "watch": "tsc -b -w"
     },
