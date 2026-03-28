@@ -28,7 +28,7 @@
         "docs": "typedoc",
         "docs:watch": "typedoc --watch",
         "example": "node --import tsx examples",
-        "format:check": "prettier --check \"./**/*.{ts,js,mjs,json,jsonc}\"",
+        "format:check": "prettier --check \"./**/*.{ts,js,mjs,json,jsonc}\" \"!package-lock.json\"",
         "lint:md": "markdownlint-cli2 \"docs/wiki/**/*.md\" \"*.{md,MD}\" \"!CHANGELOG.md\"",
         "lint:md:fix": "markdownlint-cli2 --fix \"docs/wiki/**/*.md\" \"*.{md,MD}\" \"!CHANGELOG.md\"",
         "lint:text": "textlint \"docs/wiki/**/*.md\" \"README.MD\"",
@@ -66,5 +66,61 @@
     "publishConfig": {
         "access": "public",
         "provenance": true
+    },
+    "commitlint": {
+        "extends": [
+            "@commitlint/config-conventional"
+        ],
+        "rules": {
+            "subject-case": [
+                0
+            ],
+            "scope-empty": [
+                2,
+                "always"
+            ]
+        }
+    },
+    "markdownlint-cli2": {
+        "config": {
+            "line-length": false,
+            "no-duplicate-heading": false,
+            "no-inline-html": false,
+            "first-line-heading": false,
+            "table-column-style": false
+        }
+    },
+    "textlint": {
+        "rules": {
+            "preset-ja-technical-writing": {
+                "sentence-length": false,
+                "max-comma": false,
+                "no-exclamation-question-mark": false,
+                "no-mix-dearu-desumasu": {
+                    "preferInBody": "である"
+                }
+            },
+            "no-mixed-zenkaku-and-hankaku-alphabet": true
+        }
+    },
+    "tsup": {
+        "entry": [
+            "src/index.ts"
+        ],
+        "format": [
+            "cjs",
+            "esm"
+        ],
+        "splitting": true,
+        "dts": true
+    },
+    "prettier": {
+        "semi": true,
+        "trailingComma": "all",
+        "singleQuote": false,
+        "printWidth": 120,
+        "tabWidth": 4,
+        "useTabs": false,
+        "endOfLine": "auto"
     }
 }
