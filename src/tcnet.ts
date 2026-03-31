@@ -537,35 +537,48 @@ export class TCNetClient extends EventEmitter {
 
                 if (pendingRequest && pendingRequest.assembler) {
                     // マルチパケット: アセンブラに蓄積
-                    const complete = pendingRequest.assembler.add(msg);
-
-                    if (complete) {
-                        // T8: アセンブル完了時のみ emit する (未完パケットは emit しない)
-                        const assembled = pendingRequest.assembler.assemble();
-                        const finalPacket = new dataPacketClass();
-                        finalPacket.buffer = msg;
-                        finalPacket.header = mgmtHeader;
-                        finalPacket.dataType = dataPacket.dataType;
-                        finalPacket.layer = dataPacket.layer;
-                        if ("readAssembled" in finalPacket && typeof finalPacket.readAssembled === "function") {
-                            finalPacket.readAssembled(assembled);
-                        }
+                    // FileパケットでtotalPackets=0の場合、アセンブラは処理できないため
+                    // 単一パケットとして即座に解決する
+                    const totalPackets = msg.readUInt32LE(30);
+                    const isFilePacket = packet instanceof nw.TCNetFilePacket;
+                    if (isFilePacket && totalPackets === 0) {
                         this.requests.delete(key);
                         clearTimeout(pendingRequest.timeout);
                         if (this.connected) {
-                            this.emit("data", finalPacket);
+                            this.emit("data", dataPacket);
                         }
-                        pendingRequest.resolve(finalPacket);
+                        pendingRequest.resolve(dataPacket);
                     } else {
-                        // パケット到着ごとにタイムアウトをリセット (emit しない)
-                        clearTimeout(pendingRequest.timeout);
-                        pendingRequest.timeout = setTimeout(() => {
-                            if (this.requests.delete(key)) {
-                                // T2: タイムアウト時にアセンブラのメモリをクリーンアップする
-                                pendingRequest.assembler?.reset();
-                                pendingRequest.reject(new Error("Timeout while requesting data"));
+                        const complete = pendingRequest.assembler.add(msg);
+
+                        if (complete) {
+                            // T8: アセンブル完了時のみ emit する (未完パケットは emit しない)
+                            const assembled = pendingRequest.assembler.assemble();
+                            const finalPacket = new dataPacketClass();
+                            finalPacket.buffer = msg;
+                            finalPacket.header = mgmtHeader;
+                            finalPacket.dataType = dataPacket.dataType;
+                            finalPacket.layer = dataPacket.layer;
+                            if ("readAssembled" in finalPacket && typeof finalPacket.readAssembled === "function") {
+                                finalPacket.readAssembled(assembled);
                             }
-                        }, this.config.requestTimeout);
+                            this.requests.delete(key);
+                            clearTimeout(pendingRequest.timeout);
+                            if (this.connected) {
+                                this.emit("data", finalPacket);
+                            }
+                            pendingRequest.resolve(finalPacket);
+                        } else {
+                            // パケット到着ごとにタイムアウトをリセット (emit しない)
+                            clearTimeout(pendingRequest.timeout);
+                            pendingRequest.timeout = setTimeout(() => {
+                                if (this.requests.delete(key)) {
+                                    // T2: タイムアウト時にアセンブラのメモリをクリーンアップする
+                                    pendingRequest.assembler?.reset();
+                                    pendingRequest.reject(new Error("Timeout while requesting data"));
+                                }
+                            }, this.config.requestTimeout);
+                        }
                     }
                 } else {
                     // 単一パケット: 従来通り

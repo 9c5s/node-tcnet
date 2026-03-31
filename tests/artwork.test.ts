@@ -73,6 +73,25 @@ describe("TCNetDataPacketArtwork", () => {
         expect(packet.data!.jpeg).toEqual(jpegData);
     });
 
+    it("read() で clusterSize=0 の File パケットからバッファ末尾までJPEGデータを読み取る", () => {
+        // Fileパケットではclusterサイズが0のため、バッファ末尾までをデータとして扱う
+        const jpegData = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x01, 0x02, 0x03, 0x04]);
+        const buffer = Buffer.alloc(42 + jpegData.length);
+        writeValidHeader(buffer, nw.TCNetMessageType.File);
+        buffer.writeUInt8(128, 24);
+        buffer.writeUInt8(1, 25);
+        buffer.writeUInt32LE(0, 38); // clusterSize = 0 (Fileパケットの実機挙動)
+        jpegData.copy(buffer, 42);
+
+        const packet = new nw.TCNetDataPacketArtwork();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+
+        expect(packet.data).not.toBeNull();
+        expect(packet.data!.jpeg).toEqual(jpegData);
+    });
+
     it("readAssembled() でアセンブル済みバッファからJPEGデータを読み取る", () => {
         const jpegData = Buffer.alloc(4800);
         // JPEGマジックナンバーを先頭に設定
@@ -161,6 +180,36 @@ describe("receiveUnicast Artwork マルチパケット", () => {
         expect(artwork.data!.jpeg[0]).toBe(0xff); // chunk1
         expect(artwork.data!.jpeg[2400]).toBe(0xd8); // chunk2
         expect(artwork.data!.jpeg[4800]).toBe(0xe0); // chunk3
+    });
+
+    it("totalPackets=0 の単一 File パケットで requestData が resolve する", async () => {
+        // FileパケットでtotalPackets=0 (非マルチパケット) の場合のフォールバック動作を検証する
+        const client = new TestTCNetClient();
+        client.simulateConnected();
+        const mockSocket = { send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()) };
+        (client as any).broadcastSocket = mockSocket;
+        (client as any).config.broadcastAddress = "255.255.255.255";
+
+        const promise = client.requestData(nw.TCNetDataPacketType.ArtworkData, 0);
+
+        const jpegData = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x01, 0x02, 0x03, 0x04]);
+        const bufSize = 42 + jpegData.length;
+        const pkt = Buffer.alloc(bufSize);
+        writeValidHeader(pkt, nw.TCNetMessageType.File);
+        pkt.writeUInt8(128, 24); // dataType = ArtworkData
+        pkt.writeUInt8(1, 25); // layer (1-based)
+        pkt.writeUInt32LE(0, 30); // totalPackets = 0 (非マルチパケット)
+        pkt.writeUInt32LE(0, 34); // packetNo = 0
+        pkt.writeUInt32LE(0, 38); // clusterSize = 0
+        jpegData.copy(pkt, 42);
+
+        client.simulateUnicast(pkt);
+
+        const result = await promise;
+        expect(result).toBeInstanceOf(nw.TCNetDataPacketArtwork);
+        const artwork = result as nw.TCNetDataPacketArtwork;
+        expect(artwork.data).not.toBeNull();
+        expect(artwork.data!.jpeg).toEqual(jpegData);
     });
 
     it("2パケットの Artwork もアセンブルされる", async () => {
