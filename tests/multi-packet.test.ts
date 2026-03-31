@@ -145,6 +145,24 @@ describe("MultiPacketAssembler", () => {
         expect(assembler.add(buf2)).toBe(true); // 3パケット揃った
     });
 
+    it("clusterSize=0 の場合、バッファ末尾までをデータとして扱う", () => {
+        // FileパケットではclusterSizeが0のため、バッファ実長からdataStartを引いた値を使用する
+        const assembler = new MultiPacketAssembler();
+        const data = [0xff, 0xd8, 0xff, 0xe0];
+        const buf = Buffer.alloc(42 + data.length);
+        buf.writeUInt32LE(1, 30); // totalPackets = 1
+        buf.writeUInt32LE(1, 34); // packetNo = 1
+        buf.writeUInt32LE(0, 38); // clusterSize = 0 (Fileパケットの実機挙動)
+        for (let i = 0; i < data.length; i++) {
+            buf.writeUInt8(data[i], 42 + i);
+        }
+        expect(assembler.add(buf)).toBe(true);
+        const result = assembler.assemble();
+        expect(result.length).toBe(data.length);
+        expect(result.readUInt8(0)).toBe(0xff);
+        expect(result.readUInt8(1)).toBe(0xd8);
+    });
+
     it("同じ packetNo で add() すると後のデータで上書きされる", () => {
         // Arrange
         const assembler = new MultiPacketAssembler();

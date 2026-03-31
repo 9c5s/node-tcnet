@@ -909,7 +909,8 @@ export class TCNetDataPacketArtwork extends TCNetDataPacket {
             return;
         }
         const clusterSize = this.buffer.readUInt32LE(38);
-        const end = Math.min(dataStart + clusterSize, this.buffer.length);
+        // FileパケットではclusterSizeが0のため、バッファ末尾までをデータとして扱う
+        const end = clusterSize > 0 ? Math.min(dataStart + clusterSize, this.buffer.length) : this.buffer.length;
         this.data = { jpeg: Buffer.from(this.buffer.slice(dataStart, end)) };
     }
 

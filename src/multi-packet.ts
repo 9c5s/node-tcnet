@@ -22,9 +22,11 @@ export class MultiPacketAssembler {
         const packetNo = buffer.readUInt32LE(34);
         const clusterSize = buffer.readUInt32LE(38);
         const dataStart = 42;
-        if (dataStart + clusterSize > buffer.length) return false;
+        // FileパケットではclusterSizeが0のため、バッファ末尾までをデータとして扱う
+        const actualSize = clusterSize > 0 ? clusterSize : buffer.length - dataStart;
+        if (dataStart + actualSize > buffer.length) return false;
         // T3: Buffer.from() でコピーを保持し、元バッファへの参照共有を防ぐ
-        this.packets.set(packetNo, Buffer.from(buffer.slice(dataStart, dataStart + clusterSize)));
+        this.packets.set(packetNo, Buffer.from(buffer.slice(dataStart, dataStart + actualSize)));
         return this.packets.size >= this.totalPackets;
     }
 
