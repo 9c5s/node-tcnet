@@ -16,17 +16,17 @@ describe("TCNetDataPacketCUE", () => {
         buffer.writeUInt8(12, 24);
         buffer.writeUInt8(1, 25);
         buffer.writeUInt32LE(1000, 42);
-        buffer.writeUInt32LE(2000, 46);
-        // CUE 1 at byte 50
-        buffer.writeUInt8(1, 50);
-        buffer.writeUInt32LE(5000, 52);
-        buffer.writeUInt32LE(0, 56);
-        buffer.writeUInt8(255, 61);
-        buffer.writeUInt8(0, 62);
-        buffer.writeUInt8(128, 63);
-        // CUE 2 at byte 72
-        buffer.writeUInt8(2, 72);
-        buffer.writeUInt32LE(10000, 74);
+        // 注意: Loop OUT Time (byte 46-49) と CUE 1 (byte 47-) は仕様上重複する
+        // CUE 1 at byte 47 (仕様通り)
+        buffer.writeUInt8(1, 47);
+        buffer.writeUInt32LE(5000, 49);
+        buffer.writeUInt32LE(0, 53);
+        buffer.writeUInt8(255, 58);
+        buffer.writeUInt8(0, 59);
+        buffer.writeUInt8(128, 60);
+        // CUE 2 at byte 69
+        buffer.writeUInt8(2, 69);
+        buffer.writeUInt32LE(10000, 71);
 
         const packet = new TCNetDataPacketCUE();
         packet.buffer = buffer;
@@ -35,7 +35,6 @@ describe("TCNetDataPacketCUE", () => {
 
         expect(packet.data).not.toBeNull();
         expect(packet.data!.loopInTime).toBe(1000);
-        expect(packet.data!.loopOutTime).toBe(2000);
         expect(packet.data!.cues).toHaveLength(2);
         expect(packet.data!.cues[0]).toEqual({
             index: 1,
@@ -47,16 +46,18 @@ describe("TCNetDataPacketCUE", () => {
         expect(packet.data!.cues[1].index).toBe(2);
     });
 
-    it("type === 0 のCUEエントリはスキップする", () => {
+    it("inTime/outTimeが共に0のCUEエントリはスキップする", () => {
         const buffer = Buffer.alloc(436);
         buffer.writeUInt8(3, 2);
         buffer.write("TCN", 4, "ascii");
         buffer.writeUInt8(200, 7);
         buffer.writeUInt8(12, 24);
         buffer.writeUInt8(1, 25);
-        buffer.writeUInt8(0, 50);
-        buffer.writeUInt8(1, 72);
-        buffer.writeUInt32LE(3000, 74);
+        // CUE 1 at byte 47: type=1だがinTime/outTime共に0 → スキップ
+        buffer.writeUInt8(1, 47);
+        // CUE 2 at byte 69: inTime=3000 → 含まれる
+        buffer.writeUInt8(1, 69);
+        buffer.writeUInt32LE(3000, 71);
 
         const packet = new TCNetDataPacketCUE();
         packet.buffer = buffer;
@@ -65,6 +66,27 @@ describe("TCNetDataPacketCUE", () => {
 
         expect(packet.data!.cues).toHaveLength(1);
         expect(packet.data!.cues[0].index).toBe(2);
+        expect(packet.data!.cues[0].inTime).toBe(3000);
+    });
+
+    it("type=0でもinTimeが非0ならエントリに含まれる", () => {
+        const buffer = Buffer.alloc(436);
+        buffer.writeUInt8(3, 2);
+        buffer.write("TCN", 4, "ascii");
+        buffer.writeUInt8(200, 7);
+        buffer.writeUInt8(12, 24);
+        buffer.writeUInt8(1, 25);
+        // CUE 1 at byte 47: type=0, inTime=563 (BridgeがTYPE未実装のケース)
+        buffer.writeUInt32LE(563, 49);
+
+        const packet = new TCNetDataPacketCUE();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+
+        expect(packet.data!.cues).toHaveLength(1);
+        expect(packet.data!.cues[0].type).toBe(0);
+        expect(packet.data!.cues[0].inTime).toBe(563);
     });
 
     it("length() は 436 を返す", () => {
@@ -75,23 +97,20 @@ describe("TCNetDataPacketCUE", () => {
         expect(() => new TCNetDataPacketCUE().write()).toThrow("not supported!");
     });
 
-    it("全 CUE スロットの type が 0 の場合 cues は空配列になる", () => {
-        // Arrange: 全 18 スロットの type バイトを 0 にする (Buffer.alloc のデフォルトで全バイトが 0)
+    it("全CUEスロットのinTime/outTimeが0の場合cuesは空配列になる", () => {
         const buffer = Buffer.alloc(436);
         buffer.writeUInt8(3, 2);
         buffer.write("TCN", 4, "ascii");
         buffer.writeUInt8(200, 7);
         buffer.writeUInt8(12, 24);
         buffer.writeUInt8(1, 25);
-        // type バイト (各スロット offset + 0) はデフォルト 0 のためスキップされる
+        // 全スロットがゼロ (Buffer.allocのデフォルト) → 全エントリスキップ
 
-        // Act
         const packet = new TCNetDataPacketCUE();
         packet.buffer = buffer;
         packet.header = createHeader(buffer);
         packet.read();
 
-        // Assert
         expect(packet.data).not.toBeNull();
         expect(packet.data!.cues).toHaveLength(0);
     });

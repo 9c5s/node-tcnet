@@ -632,20 +632,23 @@ export class TCNetDataPacketCUE extends TCNetDataPacket {
         const loopInTime = this.buffer.readUInt32LE(42);
         const loopOutTime = this.buffer.readUInt32LE(46);
         const cues: CuePoint[] = [];
-        // 仕様書にはCUE 1開始を byte 47 と記載しているが、
-        // Loop OUT Time (byte 46-49) と重複するため仕様書の誤記。
-        // 実機検証に基づき byte 50 を採用。
-        const cueStart = 50;
+        // 仕様書通り CUE 1 開始は byte 47 (実機ダンプで検証済み)
+        // Loop OUT Time (byte 46-49) と重複するが、仕様書の記載通りに実装する
+        const cueStart = 47;
         for (let i = 0; i < 18; i++) {
             const offset = cueStart + i * 22;
             if (offset + 22 > this.buffer.length) break;
             const type = this.buffer.readUInt8(offset);
-            if (type === 0) continue;
+            const inTime = this.buffer.readUInt32LE(offset + 2);
+            const outTime = this.buffer.readUInt32LE(offset + 6);
+            // BridgeはTYPEフィールドを0で送信する場合がある
+            // 空エントリはinTimeとoutTimeの両方が0であることで判定する
+            if (inTime === 0 && outTime === 0) continue;
             cues.push({
                 index: i + 1,
                 type,
-                inTime: this.buffer.readUInt32LE(offset + 2),
-                outTime: this.buffer.readUInt32LE(offset + 6),
+                inTime,
+                outTime,
                 color: {
                     r: this.buffer.readUInt8(offset + 11),
                     g: this.buffer.readUInt8(offset + 12),
