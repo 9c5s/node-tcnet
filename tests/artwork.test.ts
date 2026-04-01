@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import * as nw from "../src/network";
 import { writeValidHeader, createHeader, TestTCNetClient } from "./helpers";
 
