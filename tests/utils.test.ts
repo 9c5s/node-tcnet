@@ -10,7 +10,7 @@ vi.mock("os", async () => {
 });
 
 import { networkInterfaces } from "os";
-import { assert, interfaceAddress, findIPv4Address, listNetworkAdapters } from "../src/utils";
+import { assert, interfaceAddress, findIPv4Address, listNetworkAdapters, ipToNumber } from "../src/utils";
 import type { NetworkAdapterInfo } from "../src/utils";
 
 describe("assert", () => {
@@ -129,6 +129,33 @@ describe("interfaceAddress", () => {
             ],
         });
         expect(() => interfaceAddress("eth0")).toThrow("does not have IPv4 address");
+    });
+});
+
+describe("ipToNumber", () => {
+    it("0.0.0.0 は 0 を返す", () => {
+        expect(ipToNumber("0.0.0.0")).toBe(0);
+    });
+
+    it("255.255.255.255 は 0xFFFFFFFF を返す", () => {
+        expect(ipToNumber("255.255.255.255")).toBe(0xffffffff);
+    });
+
+    it("192.168.0.130 を正しく変換する", () => {
+        expect(ipToNumber("192.168.0.130")).toBe(((192 << 24) | (168 << 16) | (0 << 8) | 130) >>> 0);
+    });
+
+    it("10.0.0.1 を正しく変換する", () => {
+        expect(ipToNumber("10.0.0.1")).toBe(((10 << 24) | 1) >>> 0);
+    });
+
+    it("同一サブネットの判定に使用できる", () => {
+        const mask = ipToNumber("255.255.255.0");
+        const a = ipToNumber("192.168.0.10") & mask;
+        const b = ipToNumber("192.168.0.130") & mask;
+        const c = ipToNumber("10.0.0.1") & mask;
+        expect(a).toBe(b);
+        expect(a).not.toBe(c);
     });
 });
 

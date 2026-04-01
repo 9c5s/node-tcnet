@@ -1,6 +1,16 @@
 import { networkInterfaces } from "os";
 
 /**
+ * IPv4アドレス文字列を32bit数値に変換する
+ * @param ip - IPv4アドレス文字列
+ * @returns 32bit数値
+ */
+export function ipToNumber(ip: string): number {
+    const parts = ip.split(".").map(Number);
+    return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+}
+
+/**
  * IPv4アドレスとサブネットマスクからブロードキャストアドレスを計算する
  * @param address - IPv4アドレス文字列
  * @param netmask - サブネットマスク文字列

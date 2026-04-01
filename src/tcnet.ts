@@ -4,7 +4,7 @@ import { execFile } from "child_process";
 import { platform } from "os";
 import * as nw from "./network";
 import { MultiPacketAssembler } from "./multi-packet";
-import { interfaceAddress, listNetworkAdapters, findIPv4Address, type NetworkAdapterInfo } from "./utils";
+import { interfaceAddress, listNetworkAdapters, findIPv4Address, ipToNumber, type NetworkAdapterInfo } from "./utils";
 import { generateAuthPayload, type AuthState } from "./auth";
 
 const TCNET_BROADCAST_PORT = 60000;
@@ -192,24 +192,32 @@ export class TCNetClient extends EventEmitter {
             this.unicastSocket = createSocket({ type: "udp4", reuseAddr: false }, this.receiveUnicast.bind(this));
             await this.bindSocket(this.unicastSocket, this.config.unicastPort, "0.0.0.0");
 
-            // 各アダプタにbroadcast/timestampソケットを作成
+            // アダプタマップを構築する
             for (const adapter of adapters) {
                 const ipv4 = findIPv4Address(adapter);
                 if (!ipv4) continue;
-
                 this.adapterMap.set(adapter.name, adapter);
+            }
 
-                const bSocket = createSocket({ type: "udp4", reuseAddr: true }, (msg: Buffer, rinfo: RemoteInfo) =>
-                    this.receiveBroadcast(msg, rinfo, adapter.name),
-                );
-                await this.bindSocket(bSocket, TCNET_BROADCAST_PORT, ipv4.address);
-                bSocket.setBroadcast(true);
-                this.broadcastSockets.set(adapter.name, bSocket);
+            // ブロードキャストソケット (1つ、0.0.0.0にbind)
+            // 送信元IPからアダプタを逆引きする
+            const detectBSocket = createSocket({ type: "udp4", reuseAddr: true }, (msg: Buffer, rinfo: RemoteInfo) => {
+                const resolvedName = this.resolveAdapterByRemoteAddress(rinfo.address);
+                this.receiveBroadcast(msg, rinfo, resolvedName ?? undefined);
+            });
+            await this.bindSocket(detectBSocket, TCNET_BROADCAST_PORT, this.config.broadcastListeningAddress);
+            detectBSocket.setBroadcast(true);
+            // 全アダプタ名で同じソケットを共有する (convergeToAdapter時のclose対象)
+            for (const name of this.adapterMap.keys()) {
+                this.broadcastSockets.set(name, detectBSocket);
+            }
 
-                const tSocket = createSocket({ type: "udp4", reuseAddr: true }, this.receiveTimestamp.bind(this));
-                await this.bindSocket(tSocket, TCNET_TIMESTAMP_PORT, ipv4.address);
-                tSocket.setBroadcast(true);
-                this.timestampSockets.set(adapter.name, tSocket);
+            // タイムスタンプソケット (1つ、0.0.0.0にbind)
+            const detectTSocket = createSocket({ type: "udp4", reuseAddr: true }, this.receiveTimestamp.bind(this));
+            await this.bindSocket(detectTSocket, TCNET_TIMESTAMP_PORT, this.config.broadcastListeningAddress);
+            detectTSocket.setBroadcast(true);
+            for (const name of this.adapterMap.keys()) {
+                this.timestampSockets.set(name, detectTSocket);
             }
         } catch (err) {
             await this.disconnectSockets();
@@ -330,6 +338,24 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
+     * 送信元IPアドレスから対応するアダプタ名を逆引きする
+     * 同一サブネットに属するアダプタを返す
+     * @param remoteAddress - 送信元IPv4アドレス
+     * @returns アダプタ名。該当なしの場合はnull
+     */
+    private resolveAdapterByRemoteAddress(remoteAddress: string): string | null {
+        const remoteNum = ipToNumber(remoteAddress);
+        for (const [name, adapter] of this.adapterMap) {
+            const ipv4 = findIPv4Address(adapter);
+            if (!ipv4) continue;
+            const mask = ipToNumber(ipv4.netmask);
+            const localNet = ipToNumber(ipv4.address) & mask;
+            if ((remoteNum & mask) === localNet) return name;
+        }
+        return null;
+    }
+
+    /**
      * Master検出時に該当アダプタに収束し、他のアダプタのソケットを閉じる
      * @param adapterName - 収束先のアダプタ名
      * @param rinfo - Master送信元情報
@@ -357,13 +383,23 @@ export class TCNetClient extends EventEmitter {
         this.broadcastSocket = this.broadcastSockets.get(adapterName) ?? null;
         this.timestampSocket = this.timestampSockets.get(adapterName) ?? null;
 
-        // 他アダプタのソケットを閉じる
+        // 他アダプタのソケットを閉じる (確定アダプタのソケットは保持する)
+        const keepSockets = new Set<Socket>();
+        if (this.broadcastSocket) keepSockets.add(this.broadcastSocket);
+        if (this.timestampSocket) keepSockets.add(this.timestampSocket);
+        const closed = new Set<Socket>();
         const closePromises: Promise<void>[] = [];
-        for (const [name, socket] of this.broadcastSockets) {
-            if (name !== adapterName) closePromises.push(closeSocket(socket));
+        for (const [, socket] of this.broadcastSockets) {
+            if (!keepSockets.has(socket) && !closed.has(socket)) {
+                closed.add(socket);
+                closePromises.push(closeSocket(socket));
+            }
         }
-        for (const [name, socket] of this.timestampSockets) {
-            if (name !== adapterName) closePromises.push(closeSocket(socket));
+        for (const [, socket] of this.timestampSockets) {
+            if (!keepSockets.has(socket) && !closed.has(socket)) {
+                closed.add(socket);
+                closePromises.push(closeSocket(socket));
+            }
         }
         this.broadcastSockets.clear();
         this.timestampSockets.clear();
@@ -394,11 +430,11 @@ export class TCNetClient extends EventEmitter {
         this.broadcastSocket = createSocket({ type: "udp4", reuseAddr: true }, (msg: Buffer, rinfo: RemoteInfo) =>
             this.receiveBroadcast(msg, rinfo),
         );
-        await this.bindSocket(this.broadcastSocket, TCNET_BROADCAST_PORT, ipv4.address);
+        await this.bindSocket(this.broadcastSocket, TCNET_BROADCAST_PORT, this.config.broadcastListeningAddress);
         this.broadcastSocket.setBroadcast(true);
 
         this.timestampSocket = createSocket({ type: "udp4", reuseAddr: true }, this.receiveTimestamp.bind(this));
-        await this.bindSocket(this.timestampSocket, TCNET_TIMESTAMP_PORT, ipv4.address);
+        await this.bindSocket(this.timestampSocket, TCNET_TIMESTAMP_PORT, this.config.broadcastListeningAddress);
         this.timestampSocket.setBroadcast(true);
 
         this.unicastSocket = createSocket({ type: "udp4", reuseAddr: false }, this.receiveUnicast.bind(this));
