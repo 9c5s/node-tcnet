@@ -16,6 +16,8 @@ type STORED_REQUEST = {
     reject: (reason?: unknown) => void;
     timeout: NodeJS.Timeout;
     assembler?: MultiPacketAssembler;
+    // FileパケットでtotalPackets=0の場合、パケットを順次蓄積しタイムアウトでアセンブルする
+    fileChunks?: Buffer[];
 };
 
 const MULTI_PACKET_TYPES: Set<number> = new Set([
@@ -50,6 +52,8 @@ export class TCNetConfiguration {
     broadcastAddress = "255.255.255.255";
     broadcastListeningAddress = "";
     requestTimeout = 2000;
+    /** totalPackets=0のFileパケットを蓄積する際、最後のパケット到着からアセンブル完了とみなすまでの待機時間 */
+    fileCollectionTimeout = 200;
     detectionTimeout = 5000;
     switchRetryCount = 3;
     switchRetryInterval = 1000;
@@ -573,17 +577,39 @@ export class TCNetClient extends EventEmitter {
 
                 if (pendingRequest && pendingRequest.assembler) {
                     // マルチパケット: アセンブラに蓄積
-                    // FileパケットでtotalPackets=0の場合、アセンブラは処理できないため
-                    // 単一パケットとして即座に解決する
                     const totalPackets = msg.readUInt32LE(30);
                     const isFilePacket = packet instanceof nw.TCNetFilePacket;
-                    if (isFilePacket && totalPackets === 0) {
-                        this.requests.delete(key);
-                        clearTimeout(pendingRequest.timeout);
-                        if (this.connected) {
-                            this.emit("data", dataPacket);
+                    if (isFilePacket && (totalPackets === 0 || pendingRequest.fileChunks)) {
+                        // FileパケットでtotalPackets=0の場合、パケットを順次蓄積し
+                        // 一定時間新パケットが来なければアセンブル完了とみなす
+                        if (!pendingRequest.fileChunks) {
+                            pendingRequest.fileChunks = [];
                         }
-                        pendingRequest.resolve(dataPacket);
+                        const dataStart = 42;
+                        if (msg.length > dataStart) {
+                            const clusterSize = msg.readUInt32LE(38);
+                            const end = clusterSize > 0 ? Math.min(dataStart + clusterSize, msg.length) : msg.length;
+                            pendingRequest.fileChunks.push(Buffer.from(msg.slice(dataStart, end)));
+                        }
+                        clearTimeout(pendingRequest.timeout);
+                        pendingRequest.timeout = setTimeout(() => {
+                            if (this.requests.delete(key)) {
+                                const assembled = Buffer.concat(pendingRequest.fileChunks!);
+                                pendingRequest.fileChunks = undefined;
+                                const finalPacket = new dataPacketClass();
+                                finalPacket.buffer = msg;
+                                finalPacket.header = mgmtHeader;
+                                finalPacket.dataType = dataPacket.dataType;
+                                finalPacket.layer = dataPacket.layer;
+                                if ("readAssembled" in finalPacket && typeof finalPacket.readAssembled === "function") {
+                                    finalPacket.readAssembled(assembled);
+                                }
+                                if (this.connected) {
+                                    this.emit("data", finalPacket);
+                                }
+                                pendingRequest.resolve(finalPacket);
+                            }
+                        }, this.config.fileCollectionTimeout);
                     } else {
                         const complete = pendingRequest.assembler.add(msg);
 
@@ -1330,6 +1356,17 @@ export class TCNetClient extends EventEmitter {
             request.layer = layer + 1; // APIは0-based、仕様は1-based
 
             const key = `${dataType}-${layer}`;
+
+            // 同一keyに未完了リクエストが残っている場合、先にキャンセルする
+            // (上書きすると旧timeoutが新リクエストを誤削除し、Promiseが永久に未解決になる)
+            const existing = this.requests.get(key);
+            if (existing) {
+                clearTimeout(existing.timeout);
+                existing.assembler?.reset();
+                this.requests.delete(key);
+                existing.reject(new Error("Superseded by new request"));
+            }
+
             const timeout = setTimeout(() => {
                 // T2: delete前にreqを取得し、アセンブラのメモリをクリーンアップする
                 const req = this.requests.get(key);

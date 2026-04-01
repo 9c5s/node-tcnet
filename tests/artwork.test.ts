@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import * as nw from "../src/network";
 import { writeValidHeader, createHeader, TestTCNetClient } from "./helpers";
 
@@ -182,8 +182,8 @@ describe("receiveUnicast Artwork マルチパケット", () => {
         expect(artwork.data!.jpeg[4800]).toBe(0xe0); // chunk3
     });
 
-    it("totalPackets=0 の単一 File パケットで requestData が resolve する", async () => {
-        // FileパケットでtotalPackets=0 (非マルチパケット) の場合のフォールバック動作を検証する
+    it("totalPackets=0 の単一 File パケットがタイムアウトベースで resolve する", async () => {
+        vi.useFakeTimers();
         const client = new TestTCNetClient();
         client.simulateConnected();
         const mockSocket = { send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()) };
@@ -198,18 +198,63 @@ describe("receiveUnicast Artwork マルチパケット", () => {
         writeValidHeader(pkt, nw.TCNetMessageType.File);
         pkt.writeUInt8(128, 24); // dataType = ArtworkData
         pkt.writeUInt8(1, 25); // layer (1-based)
-        pkt.writeUInt32LE(0, 30); // totalPackets = 0 (非マルチパケット)
+        pkt.writeUInt32LE(0, 30); // totalPackets = 0
         pkt.writeUInt32LE(0, 34); // packetNo = 0
         pkt.writeUInt32LE(0, 38); // clusterSize = 0
         jpegData.copy(pkt, 42);
 
         client.simulateUnicast(pkt);
 
+        // fileCollectionTimeout (200ms) 経過でアセンブル完了
+        vi.advanceTimersByTime(200);
+
         const result = await promise;
         expect(result).toBeInstanceOf(nw.TCNetDataPacketArtwork);
         const artwork = result as nw.TCNetDataPacketArtwork;
         expect(artwork.data).not.toBeNull();
         expect(artwork.data!.jpeg).toEqual(jpegData);
+        vi.useRealTimers();
+    });
+
+    it("totalPackets=0 のマルチ File パケットが蓄積されてアセンブルされる", async () => {
+        vi.useFakeTimers();
+        const client = new TestTCNetClient();
+        client.simulateConnected();
+        const mockSocket = { send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()) };
+        (client as any).broadcastSocket = mockSocket;
+        (client as any).config.broadcastAddress = "255.255.255.255";
+
+        const promise = client.requestData(nw.TCNetDataPacketType.ArtworkData, 0);
+
+        // 3パケットに分割されたJPEGデータ (全てtotalPackets=0)
+        const chunk1 = Buffer.alloc(2400, 0xff);
+        const chunk2 = Buffer.alloc(2400, 0xd8);
+        const chunk3 = Buffer.alloc(900, 0xe0);
+
+        const pkt1 = createFilePacketBuffer(128, 1, 0, 0, chunk1);
+        const pkt2 = createFilePacketBuffer(128, 1, 0, 0, chunk2);
+        const pkt3 = createFilePacketBuffer(128, 1, 0, 0, chunk3);
+
+        client.simulateUnicast(pkt1);
+        vi.advanceTimersByTime(10); // 10ms後に次パケット
+        client.simulateUnicast(pkt2);
+        vi.advanceTimersByTime(10);
+        client.simulateUnicast(pkt3);
+
+        // まだresolveしない (200ms未経過)
+        vi.advanceTimersByTime(100);
+
+        // 200ms経過でアセンブル完了
+        vi.advanceTimersByTime(100);
+
+        const result = await promise;
+        expect(result).toBeInstanceOf(nw.TCNetDataPacketArtwork);
+        const artwork = result as nw.TCNetDataPacketArtwork;
+        expect(artwork.data!.jpeg.length).toBe(5700); // 2400 + 2400 + 900
+        expect(artwork.data!.jpeg[0]).toBe(0xff);
+        expect(artwork.data!.jpeg[2400]).toBe(0xd8);
+        expect(artwork.data!.jpeg[4800]).toBe(0xe0);
+        vi.useRealTimers();
     });
 
     it("2パケットの Artwork もアセンブルされる", async () => {
@@ -261,5 +306,30 @@ describe("receiveUnicast Artwork マルチパケット", () => {
         expect(handler.mock.calls[0][0]).toBeInstanceOf(nw.TCNetDataPacketArtwork);
 
         await promise;
+    });
+
+    it("同一keyで再requestした場合、旧リクエストが reject され新リクエストが正常動作する", async () => {
+        const client = new TestTCNetClient();
+        client.simulateConnected();
+        const mockSocket = { send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()) };
+        (client as any).broadcastSocket = mockSocket;
+        (client as any).config.broadcastAddress = "255.255.255.255";
+
+        // 1回目のリクエスト (応答なしで放置)
+        const promise1 = client.requestData(nw.TCNetDataPacketType.ArtworkData, 0);
+
+        // 2回目のリクエスト (同一key: 128-0)
+        const promise2 = client.requestData(nw.TCNetDataPacketType.ArtworkData, 0);
+
+        // 1回目は "Superseded" で reject される
+        await expect(promise1).rejects.toThrow("Superseded by new request");
+
+        // 2回目は正常にレスポンスを受信できる
+        const chunk = Buffer.alloc(100, 0xff);
+        client.simulateUnicast(createFilePacketBuffer(128, 1, 1, 1, chunk));
+
+        const result = await promise2;
+        expect(result).toBeInstanceOf(nw.TCNetDataPacketArtwork);
+        expect((result as nw.TCNetDataPacketArtwork).data!.jpeg.length).toBe(100);
     });
 });
