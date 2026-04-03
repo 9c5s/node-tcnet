@@ -473,6 +473,9 @@ export class TCNetClient extends EventEmitter {
                         }
                     } else if (this.connected) {
                         // 確定後: 従来通りserver更新
+                        if (this.server?.address !== rinfo.address) {
+                            this.bridgeIsWindows = null;
+                        }
                         this.server = rinfo;
                         this.server.port = packet.nodeListenerPort;
                     }
@@ -939,6 +942,7 @@ export class TCNetClient extends EventEmitter {
         }
 
         const ciphertext = Buffer.from(ct, "hex");
+        const tokenBeforePing = this.sessionToken;
         // Windows BridgeはXTEA暗号文をバイトリバースして読み取るため、事前にリバースして送信する
         // 初回呼び出し時のみpingが発生し最大3秒かかる (AUTH_RESPONSE_TIMEOUT=5秒内に収まる想定)
         if (await this.detectBridgeIsWindows()) {
@@ -946,7 +950,7 @@ export class TCNetClient extends EventEmitter {
         }
 
         // detectBridgeIsWindowsのawait中に状態が変わった場合のガード
-        if (!this.server || !this.broadcastSocket || this.sessionToken === null) {
+        if (!this.server || !this.broadcastSocket || this.sessionToken !== tokenBeforePing) {
             this.resetAuthSession();
             return;
         }
