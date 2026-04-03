@@ -460,6 +460,18 @@ class AuthSequenceTestClient extends TCNetClient {
     public setSelectedAdapter(adapter: any): void {
         (this as any)._selectedAdapter = adapter;
     }
+    public callDetectBridgeIsWindows(): Promise<boolean> {
+        return (this as any).detectBridgeIsWindows();
+    }
+    public getBridgeIsWindows(): boolean | null {
+        return (this as any).bridgeIsWindows;
+    }
+    public setBridgeIsWindows(value: boolean | null): void {
+        (this as any).bridgeIsWindows = value;
+    }
+    public setServer(server: any): void {
+        (this as any).server = server;
+    }
 }
 
 describe("sendAuthSequence 状態リセット", () => {
@@ -701,5 +713,94 @@ describe("TCNetApplicationDataPacket.write() payload長検証", () => {
         packet.payload = Buffer.alloc(8); // 12バイト以外
 
         expect(() => packet.write()).toThrow("ApplicationData payload must be 12 bytes");
+    });
+});
+
+describe("sendAuthSequence XTEA暗号文バイトリバース", () => {
+    /**
+     * テスト用アダプタ情報を生成する
+     * @param ip - IPv4アドレス文字列
+     */
+    function createAdapter(ip: string) {
+        return {
+            name: "test0",
+            addresses: [
+                {
+                    address: ip,
+                    netmask: "255.255.255.0",
+                    family: "IPv4" as const,
+                    mac: "00:00:00:00:00:00",
+                    internal: false,
+                    cidr: `${ip}/24`,
+                },
+            ],
+        };
+    }
+
+    it("Windows Bridge判定時に暗号文がバイトリバースされて送信される", async () => {
+        const client = new AuthSequenceTestClient("8ee0dc051b1ddf8b");
+        client.setSessionToken(0xdeec6dfc);
+        client.setAuthState("pending");
+        client.setSelectedAdapter(createAdapter("192.168.0.10"));
+
+        const sentBuffers: Buffer[] = [];
+        client.setBroadcastSocket({
+            send: vi.fn((buf: Buffer, _port: number, _addr: string, cb: (err: Error | null) => void) => {
+                sentBuffers.push(Buffer.from(buf));
+                cb(null);
+            }),
+        });
+        (client as any).config.broadcastAddress = "255.255.255.255";
+
+        // BridgeをWindowsとして事前設定する
+        client.setBridgeIsWindows(true);
+
+        await (client as any).sendAuthSequence();
+
+        // 2番目のパケット (cmd=2) のpayloadを検査する
+        expect(sentBuffers.length).toBe(2);
+        const authBuf = sentBuffers[1];
+        // payloadはoffset 50から12バイト
+        const payload = authBuf.subarray(50, 62);
+        // auth[4:12]がリバースされた暗号文であることを確認
+        const reversedCiphertext = Buffer.from("8ee0dc051b1ddf8b", "hex").reverse();
+        expect(payload.subarray(4, 12)).toEqual(reversedCiphertext);
+    });
+
+    it("non-Windows Bridge判定時に暗号文がそのまま送信される", async () => {
+        const client = new AuthSequenceTestClient("8ee0dc051b1ddf8b");
+        client.setSessionToken(0xdeec6dfc);
+        client.setAuthState("pending");
+        client.setSelectedAdapter(createAdapter("192.168.0.10"));
+
+        const sentBuffers: Buffer[] = [];
+        client.setBroadcastSocket({
+            send: vi.fn((buf: Buffer, _port: number, _addr: string, cb: (err: Error | null) => void) => {
+                sentBuffers.push(Buffer.from(buf));
+                cb(null);
+            }),
+        });
+        (client as any).config.broadcastAddress = "255.255.255.255";
+
+        // Bridgeをnon-Windowsとして事前設定する
+        client.setBridgeIsWindows(false);
+
+        await (client as any).sendAuthSequence();
+
+        expect(sentBuffers.length).toBe(2);
+        const authBuf = sentBuffers[1];
+        const payload = authBuf.subarray(50, 62);
+        const originalCiphertext = Buffer.from("8ee0dc051b1ddf8b", "hex");
+        expect(payload.subarray(4, 12)).toEqual(originalCiphertext);
+    });
+
+    it("resetAuthSessionでbridgeIsWindowsキャッシュがクリアされる", () => {
+        const client = new AuthSequenceTestClient();
+        client.setBridgeIsWindows(true);
+        client.setAuthState("pending");
+
+        (client as any).resetAuthSession();
+
+        expect(client.getBridgeIsWindows()).toBeNull();
     });
 });
