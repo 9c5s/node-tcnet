@@ -1,5 +1,7 @@
 import { Socket, createSocket, RemoteInfo } from "dgram";
 import { EventEmitter } from "events";
+import { execFile } from "child_process";
+import { platform } from "os";
 import * as nw from "./network";
 import { MultiPacketAssembler } from "./multi-packet";
 import { interfaceAddress, listNetworkAdapters, findIPv4Address, type NetworkAdapterInfo } from "./utils";
@@ -91,6 +93,7 @@ export class TCNetClient extends EventEmitter {
     private _authState: AuthState = "none";
     private sessionToken: number | null = null;
     private authTimeoutId: NodeJS.Timeout | null = null;
+    private bridgeIsWindows: boolean | null = null;
 
     /**
      * TCNetClientを初期化する
@@ -470,6 +473,9 @@ export class TCNetClient extends EventEmitter {
                         }
                     } else if (this.connected) {
                         // 確定後: 従来通りserver更新
+                        if (this.server?.address !== rinfo.address) {
+                            this.bridgeIsWindows = null;
+                        }
                         this.server = rinfo;
                         this.server.port = packet.nodeListenerPort;
                     }
@@ -798,6 +804,67 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
+     * BridgeのOSがWindowsであるかをpingのTTL値から検出する
+     *
+     * Bridge IPが自分のIPと一致する場合はos.platform()で判定する。
+     * リモートの場合はpingを1回実行しTTL値をパースする (TTL > 64 → Windows)。
+     * WindowsのデフォルトTTLは128、macOS/LinuxのデフォルトTTLは64であるため、
+     * 同一LAN (0-1ホップ) ではこの閾値で正確に判定できる。
+     * 結果はインスタンス変数にキャッシュし、セッション中1回だけ検出する。
+     * @returns Windowsならtrue、それ以外ならfalse
+     */
+    private async detectBridgeIsWindows(): Promise<boolean> {
+        if (this.bridgeIsWindows !== null) return this.bridgeIsWindows;
+
+        const bridgeIp = this.server?.address;
+        if (!bridgeIp) {
+            // serverが未設定の場合はキャッシュせず、次回の呼び出しで再検出を許可する
+            return false;
+        }
+
+        // IPv4フォーマットバリデーション (execFileに渡す前の防御)
+        // 不正IPは確定的でないためキャッシュしない
+        if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(bridgeIp)) {
+            return false;
+        }
+
+        const clientIp = this.getClientIp();
+        if (clientIp && bridgeIp === clientIp) {
+            this.bridgeIsWindows = platform() === "win32";
+            this.log?.debug(`Bridge OS detected (local): ${this.bridgeIsWindows ? "Windows" : "non-Windows"}`);
+            return this.bridgeIsWindows;
+        }
+
+        try {
+            const isWin = platform() === "win32";
+            const args = isWin ? ["-n", "1", "-w", "1000", bridgeIp] : ["-c", "1", "-W", "1", bridgeIp];
+            const output = await new Promise<string>((resolve, reject) => {
+                execFile("ping", args, { timeout: 3000 }, (err, stdout) => {
+                    if (err) reject(err);
+                    else resolve(stdout);
+                });
+            });
+            const match = output.match(/ttl[=:](\d+)/i);
+            if (match) {
+                const ttl = Number.parseInt(match[1], 10);
+                this.bridgeIsWindows = ttl > 64;
+                this.log?.debug(`Bridge OS detected (TTL=${ttl}): ${this.bridgeIsWindows ? "Windows" : "non-Windows"}`);
+            } else {
+                // TTL未検出は確定的でないためキャッシュせず、次回再検出を許可する
+                this.log?.debug("Bridge OS detection: TTL not found in ping output, assuming non-Windows");
+                return false;
+            }
+        } catch (err) {
+            // ping失敗は確定的でないためキャッシュせず、次回再検出を許可する
+            const msg = err instanceof Error ? err.message : String(err);
+            this.log?.debug(`Bridge OS detection: ping failed (${msg}), assuming non-Windows`);
+            return false;
+        }
+
+        return this.bridgeIsWindows;
+    }
+
+    /**
      * AppDataパケットを生成する
      * @param cmd - コマンド番号
      * @param token - セッショントークン
@@ -831,6 +898,7 @@ export class TCNetClient extends EventEmitter {
     private resetAuthSession(): void {
         this._authState = "none";
         this.sessionToken = null;
+        this.bridgeIsWindows = null;
         if (this.authTimeoutId) {
             clearTimeout(this.authTimeoutId);
             this.authTimeoutId = null;
@@ -874,6 +942,19 @@ export class TCNetClient extends EventEmitter {
         }
 
         const ciphertext = Buffer.from(ct, "hex");
+        const tokenBeforePing = this.sessionToken;
+        // Windows BridgeはXTEA暗号文をバイトリバースして読み取るため、事前にリバースして送信する
+        // 初回呼び出し時のみpingが発生し最大3秒かかる (AUTH_RESPONSE_TIMEOUT=5秒内に収まる想定)
+        if (await this.detectBridgeIsWindows()) {
+            ciphertext.reverse();
+        }
+
+        // detectBridgeIsWindowsのawait中に状態が変わった場合のガード
+        if (!this.server || !this.broadcastSocket || this.sessionToken !== tokenBeforePing) {
+            this.resetAuthSession();
+            return;
+        }
+
         const payload = generateAuthPayload(this.sessionToken, clientIp, ciphertext);
         const auth = this.createAppDataPacket(2, this.sessionToken, payload);
         await this.sendPacket(auth, this.broadcastSocket, TCNET_BROADCAST_PORT, this.config.broadcastAddress);
