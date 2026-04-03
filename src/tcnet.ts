@@ -820,8 +820,8 @@ export class TCNetClient extends EventEmitter {
         }
 
         // IPv4フォーマットバリデーション (execFileに渡す前の防御)
+        // 不正IPは確定的でないためキャッシュしない
         if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(bridgeIp)) {
-            this.bridgeIsWindows = false;
             return false;
         }
 

@@ -189,12 +189,13 @@ describe("detectBridgeIsWindows", () => {
         expect(await client.callDetectBridgeIsWindows()).toBe(true);
     });
 
-    it("不正なIPアドレス形式の場合はfalseを返す", async () => {
+    it("不正なIPアドレス形式の場合はfalseを返しキャッシュしない", async () => {
         const client = new BridgeOsTestClient();
         client.setServer({ address: "invalid-ip", port: 65207 });
         client.setSelectedAdapter(createAdapter("192.168.0.10"));
 
         expect(await client.callDetectBridgeIsWindows()).toBe(false);
+        expect(client.getBridgeIsWindows()).toBeNull();
     });
 
     it("Windowsではping -n 1 -w 1000引数を使用する", async () => {
