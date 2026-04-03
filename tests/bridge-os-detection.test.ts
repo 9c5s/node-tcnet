@@ -142,22 +142,24 @@ describe("detectBridgeIsWindows", () => {
         expect(await client.callDetectBridgeIsWindows()).toBe(true);
     });
 
-    it("ping失敗時はfalseにフォールバックする", async () => {
+    it("ping失敗時はfalseを返しキャッシュしない", async () => {
         platformMock.mockReturnValue("win32");
         mockExecFileError(new Error("ping failed"));
         const client = new BridgeOsTestClient();
         client.setSelectedAdapter(createAdapter("192.168.0.10"));
 
         expect(await client.callDetectBridgeIsWindows()).toBe(false);
+        expect(client.getBridgeIsWindows()).toBeNull();
     });
 
-    it("ping出力にTTLが含まれない場合はfalseにフォールバックする", async () => {
+    it("ping出力にTTLが含まれない場合はfalseを返しキャッシュしない", async () => {
         platformMock.mockReturnValue("win32");
         mockExecFileSuccess("Request timed out.\n");
         const client = new BridgeOsTestClient();
         client.setSelectedAdapter(createAdapter("192.168.0.10"));
 
         expect(await client.callDetectBridgeIsWindows()).toBe(false);
+        expect(client.getBridgeIsWindows()).toBeNull();
     });
 
     it("結果がキャッシュされ2回目以降はpingを実行しない", async () => {

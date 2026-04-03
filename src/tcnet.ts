@@ -847,13 +847,15 @@ export class TCNetClient extends EventEmitter {
                 this.bridgeIsWindows = ttl > 64;
                 this.log?.debug(`Bridge OS detected (TTL=${ttl}): ${this.bridgeIsWindows ? "Windows" : "non-Windows"}`);
             } else {
-                this.bridgeIsWindows = false;
+                // TTL未検出は確定的でないためキャッシュせず、次回再検出を許可する
                 this.log?.debug("Bridge OS detection: TTL not found in ping output, assuming non-Windows");
+                return false;
             }
         } catch (err) {
-            this.bridgeIsWindows = false;
+            // ping失敗は確定的でないためキャッシュせず、次回再検出を許可する
             const msg = err instanceof Error ? err.message : String(err);
             this.log?.debug(`Bridge OS detection: ping failed (${msg}), assuming non-Windows`);
+            return false;
         }
 
         return this.bridgeIsWindows;
@@ -942,6 +944,13 @@ export class TCNetClient extends EventEmitter {
         if (await this.detectBridgeIsWindows()) {
             ciphertext.reverse();
         }
+
+        // detectBridgeIsWindowsのawait中に状態が変わった場合のガード
+        if (!this.server || !this.broadcastSocket || this.sessionToken === null) {
+            this.resetAuthSession();
+            return;
+        }
+
         const payload = generateAuthPayload(this.sessionToken, clientIp, ciphertext);
         const auth = this.createAppDataPacket(2, this.sessionToken, payload);
         await this.sendPacket(auth, this.broadcastSocket, TCNET_BROADCAST_PORT, this.config.broadcastAddress);
