@@ -52,7 +52,10 @@ export class TCNetConfiguration {
     broadcastAddress = "255.255.255.255";
     broadcastListeningAddress = "";
     requestTimeout = 2000;
-    /** totalPackets=0のFileパケットを蓄積する際、最後のパケット到着からアセンブル完了とみなすまでの待機時間 */
+    /**
+     * totalPackets=0のFileパケットを蓄積する際、最後のパケット到着からアセンブル完了とみなすまでの待機時間(ミリ秒)
+     * 200msはBridge実機での連続Fileパケット送信間隔(数msから数十ms)を観測して決定した値であり、安全マージンを確保している
+     */
     fileCollectionTimeout = 200;
     detectionTimeout = 5000;
     switchRetryCount = 3;
