@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import * as nw from "../src/network";
 import { writeValidHeader, createHeader, TestTCNetClient } from "./helpers";
 
@@ -146,37 +146,49 @@ describe("TCNetDataPacketType レジストリ", () => {
 });
 
 describe("receiveUnicast Artwork マルチパケット", () => {
-    it("requestData(128) の応答として File パケットがアセンブルされる", async () => {
+    // fake timers を使うテストで、アサーション失敗時にも実時間タイマーに復帰させるための保険
+    afterEach(() => {
+        vi.useRealTimers();
+    });
+
+    // 3パケット(2400+2400+902、実機ログのパターン)で Artwork をアセンブルするヘルパー
+    async function receiveThreePacketArtwork(): Promise<nw.TCNetDataPacketArtwork> {
         const client = new TestTCNetClient();
         client.simulateConnected();
-        // broadcastSocket をモックで設定 (requestData の送信に必要)
-        const mockSocket = { send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()) };
+        const mockSocket = {
+            send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()),
+        };
         (client as any).broadcastSocket = mockSocket;
         (client as any).config.broadcastAddress = "255.255.255.255";
 
-        // requestData を発行
         const promise = client.requestData(nw.TCNetDataPacketType.ArtworkData, 0);
 
-        // 3パケットでJPEGデータを送信 (実機ログのパターン: 2400+2400+902)
         const chunk1 = Buffer.alloc(2400, 0xff); // 1st cluster
         const chunk2 = Buffer.alloc(2400, 0xd8); // 2nd cluster
         const chunk3 = Buffer.alloc(902, 0xe0); // 3rd cluster (末尾)
 
-        const pkt1 = createFilePacketBuffer(128, 1, 3, 1, chunk1);
-        const pkt2 = createFilePacketBuffer(128, 1, 3, 2, chunk2);
-        const pkt3 = createFilePacketBuffer(128, 1, 3, 3, chunk3);
+        client.simulateUnicast(createFilePacketBuffer(128, 1, 3, 1, chunk1));
+        client.simulateUnicast(createFilePacketBuffer(128, 1, 3, 2, chunk2));
+        client.simulateUnicast(createFilePacketBuffer(128, 1, 3, 3, chunk3));
 
-        client.simulateUnicast(pkt1);
-        client.simulateUnicast(pkt2);
-        client.simulateUnicast(pkt3);
+        return (await promise) as nw.TCNetDataPacketArtwork;
+    }
 
-        const result = await promise;
-        expect(result).toBeInstanceOf(nw.TCNetDataPacketArtwork);
-        const artwork = result as nw.TCNetDataPacketArtwork;
+    it("3パケット受信で TCNetDataPacketArtwork がアセンブルされる", async () => {
+        const artwork = await receiveThreePacketArtwork();
+        expect(artwork).toBeInstanceOf(nw.TCNetDataPacketArtwork);
         expect(artwork.data).not.toBeNull();
-        // アセンブル後のJPEGサイズ = 2400 + 2400 + 902
+    });
+
+    it("3パケットアセンブル後のJPEG長さが全チャンクの合計サイズになる", async () => {
+        const artwork = await receiveThreePacketArtwork();
+        // 長さ = 2400 + 2400 + 902
         expect(artwork.data!.jpeg.length).toBe(5702);
-        // 各チャンクの内容を検証
+    });
+
+    it("3パケットアセンブル後のJPEGが各チャンクを順序通り連結した内容になる", async () => {
+        const artwork = await receiveThreePacketArtwork();
+        // 各チャンクの先頭バイトが期待位置にあることを検証する
         expect(artwork.data!.jpeg[0]).toBe(0xff); // chunk1
         expect(artwork.data!.jpeg[2400]).toBe(0xd8); // chunk2
         expect(artwork.data!.jpeg[4800]).toBe(0xe0); // chunk3
@@ -213,7 +225,6 @@ describe("receiveUnicast Artwork マルチパケット", () => {
         const artwork = result as nw.TCNetDataPacketArtwork;
         expect(artwork.data).not.toBeNull();
         expect(artwork.data!.jpeg).toEqual(jpegData);
-        vi.useRealTimers();
     });
 
     it("totalPackets=0 のマルチ File パケットが蓄積されてアセンブルされる", async () => {
@@ -254,7 +265,6 @@ describe("receiveUnicast Artwork マルチパケット", () => {
         expect(artwork.data!.jpeg[0]).toBe(0xff);
         expect(artwork.data!.jpeg[2400]).toBe(0xd8);
         expect(artwork.data!.jpeg[4800]).toBe(0xe0);
-        vi.useRealTimers();
     });
 
     it("2パケットの Artwork もアセンブルされる", async () => {

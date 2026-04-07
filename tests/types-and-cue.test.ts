@@ -114,4 +114,31 @@ describe("TCNetDataPacketCUE", () => {
         expect(packet.data).not.toBeNull();
         expect(packet.data!.cues).toHaveLength(0);
     });
+
+    it("バッファの有効範囲内の全CUEスロット(17エントリ)が読み取られる", () => {
+        // バッファ436バイトで読める有効スロットは i=0 から 16 の 17 エントリである
+        // (i=17 は offset=47+17*22=421、offset+22=443>436 で break する)
+        const buffer = Buffer.alloc(436);
+        buffer.writeUInt8(3, 2);
+        buffer.write("TCN", 4, "ascii");
+        buffer.writeUInt8(200, 7);
+        buffer.writeUInt8(12, 24);
+        buffer.writeUInt8(1, 25);
+
+        // 17エントリ全てを埋める (type=1, inTime=1000+i)
+        for (let i = 0; i < 17; i++) {
+            const offset = 47 + i * 22;
+            buffer.writeUInt8(1, offset);
+            buffer.writeUInt32LE(1000 + i, offset + 2);
+        }
+
+        const packet = new TCNetDataPacketCUE();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+
+        expect(packet.data!.cues).toHaveLength(17);
+        expect(packet.data!.cues[0].inTime).toBe(1000);
+        expect(packet.data!.cues[16].inTime).toBe(1016);
+    });
 });
