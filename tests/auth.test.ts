@@ -900,7 +900,7 @@ describe("performReauth", () => {
         client.setAuthState("authenticated");
 
         const p1 = client.callPerformReauth();
-        // reauthPromiseが設定されているので2回目はskip (stateがauthenticatedでないため)
+        // reauthPromiseが設定済み、かつauthStateがrefreshingに遷移済みのため2回目はskip
         const p2 = client.callPerformReauth();
         await expect(p2).resolves.toBeUndefined();
 
