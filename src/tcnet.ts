@@ -251,6 +251,11 @@ export class TCNetClient extends EventEmitter {
         this.server = null;
         this.detectingAdapter = false;
         this.stopAutoReauth();
+        // reauthPromise進行中の場合、executeReauthのリスナーが
+        // authFailedを捕捉してPromiseをrejectできるようにする
+        if (this.reauthPromise) {
+            this.emit("authFailed");
+        }
         this.resetAuthSession();
         if (this.connectTimeoutId) {
             clearTimeout(this.connectTimeoutId);
@@ -952,6 +957,7 @@ export class TCNetClient extends EventEmitter {
      * @param timeoutMs - 認証タイムアウト (ms)
      */
     private async executeReauth(timeoutMs: number = AUTH_REFRESH_TIMEOUT): Promise<void> {
+        let cleanup: (() => void) | undefined;
         try {
             this.resetAuthSession();
             // resetAuthSessionがstate="none"にリセットした後、"refreshing"を再設定する
@@ -964,22 +970,24 @@ export class TCNetClient extends EventEmitter {
             // Bridgeが即座に応答するケース(テスト環境等)でのイベント取りこぼしを防ぐ
             const authPromise = new Promise<void>((resolve, reject) => {
                 const onAuth = (): void => {
-                    cleanup();
+                    doCleanup();
                     resolve();
                 };
                 const onFail = (): void => {
-                    cleanup();
+                    doCleanup();
                     reject(new Error("Reauth failed"));
                 };
                 const timer = setTimeout(() => {
-                    cleanup();
+                    doCleanup();
                     reject(new Error("Reauth timeout"));
                 }, timeoutMs);
-                const cleanup = (): void => {
+                timer.unref();
+                const doCleanup = (): void => {
                     this.removeListener("authenticated", onAuth);
                     this.removeListener("authFailed", onFail);
                     clearTimeout(timer);
                 };
+                cleanup = doCleanup;
                 this.once("authenticated", onAuth);
                 this.once("authFailed", onFail);
             });
@@ -988,6 +996,7 @@ export class TCNetClient extends EventEmitter {
             await authPromise;
             this.emit("reauthenticated");
         } catch (err) {
+            cleanup?.();
             this.emit("reauthFailed", err instanceof Error ? err : new Error(String(err)));
             throw err;
         }

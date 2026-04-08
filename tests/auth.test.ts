@@ -968,6 +968,16 @@ describe("autoReauth タイマー", () => {
         expect(client.getReauthIntervalId()).toBeNull();
     });
 
+    it("reauthInterval = 10000 (下限ちょうど) ではタイマーが起動する", () => {
+        const client = new AuthTestClient();
+        (client as any).config.autoReauth = true;
+        (client as any).config.reauthInterval = 10_000;
+
+        client.callStartAutoReauth();
+        expect(client.getReauthIntervalId()).not.toBeNull();
+        client.callStopAutoReauth();
+    });
+
     it("stopAutoReauthでタイマーが停止する", () => {
         const client = new AuthTestClient();
         (client as any).config.autoReauth = true;
@@ -1038,7 +1048,7 @@ describe("disconnect時のreauthクリーンアップ", () => {
         expect(client.getReauthIntervalId()).toBeNull();
     });
 
-    it("reauthPromise進行中にresetAuthSessionが呼ばれるとPromiseがrejectされる", async () => {
+    it("reauthPromise進行中にdisconnect相当の操作でPromiseがrejectされる", async () => {
         const client = new AuthTestClient();
         client.setAuthState("authenticated");
 
@@ -1046,10 +1056,13 @@ describe("disconnect時のreauthクリーンアップ", () => {
         const promise = client.callPerformReauth();
         expect(client.getReauthPromise()).not.toBeNull();
 
-        // disconnect相当: resetAuthSessionがauthFailedをemitし、
-        // executeReauthのリスナーがcatchしてPromiseをrejectする
+        // disconnectSocketsの実フローを再現:
+        // stopAutoReauth → reauthPromise存在時にauthFailed emit → resetAuthSession
         client.callStopAutoReauth();
-        setTimeout(() => client.emit("authFailed"), 0);
+        if (client.getReauthPromise()) {
+            client.emit("authFailed");
+        }
+        (client as any).resetAuthSession();
         await expect(promise).rejects.toThrow();
         expect(client.getReauthPromise()).toBeNull();
     });
