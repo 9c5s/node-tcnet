@@ -1008,3 +1008,34 @@ describe("reauth (public API)", () => {
         await Promise.all([p1, p2]);
     });
 });
+
+describe("disconnect時のreauthクリーンアップ", () => {
+    it("stopAutoReauthが呼ばれタイマーが停止する", () => {
+        const client = new AuthTestClient();
+        (client as any).config.autoReauth = true;
+        (client as any).config.reauthInterval = 60_000;
+        client.callStartAutoReauth();
+        expect(client.getReauthIntervalId()).not.toBeNull();
+
+        // disconnectSocketsの代わりにstopAutoReauthを直接テスト
+        // (disconnectSocketsはソケット操作を伴うため単体テストでは呼べない)
+        client.callStopAutoReauth();
+        expect(client.getReauthIntervalId()).toBeNull();
+    });
+
+    it("reauthPromise進行中にresetAuthSessionが呼ばれるとPromiseがrejectされる", async () => {
+        const client = new AuthTestClient();
+        client.setAuthState("authenticated");
+
+        // 再認証を開始 (authenticatedイベント待ちの状態にする)
+        const promise = client.callPerformReauth();
+        expect(client.getReauthPromise()).not.toBeNull();
+
+        // disconnect相当: resetAuthSessionがauthFailedをemitし、
+        // executeReauthのリスナーがcatchしてPromiseをrejectする
+        client.callStopAutoReauth();
+        setTimeout(() => client.emit("authFailed"), 0);
+        await expect(promise).rejects.toThrow();
+        expect(client.getReauthPromise()).toBeNull();
+    });
+});

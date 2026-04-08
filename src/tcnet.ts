@@ -250,6 +250,7 @@ export class TCNetClient extends EventEmitter {
         this._selectedAdapter = null;
         this.server = null;
         this.detectingAdapter = false;
+        this.stopAutoReauth();
         this.resetAuthSession();
         if (this.connectTimeoutId) {
             clearTimeout(this.connectTimeoutId);
