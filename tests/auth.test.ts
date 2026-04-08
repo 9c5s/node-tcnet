@@ -468,6 +468,7 @@ describe("handleAuthPacket", () => {
 
     it("autoReauth=falseの場合タイマーは起動しない", () => {
         const client = new AuthTestClient();
+        (client as any).connected = true;
         (client as any).config.autoReauth = false;
         client.setAuthState("pending");
 
@@ -974,6 +975,7 @@ describe("autoReauth タイマー", () => {
 
     it("未接続状態ではタイマーが起動しない", () => {
         const client = new AuthTestClient();
+        client.setAuthState("authenticated");
         (client as any).config.autoReauth = true;
         (client as any).config.reauthInterval = 60_000;
         // connectedがfalse(デフォルト)の場合
@@ -985,6 +987,8 @@ describe("autoReauth タイマー", () => {
 
     it("autoReauth=falseではタイマーが起動しない", () => {
         const client = new AuthTestClient();
+        (client as any).connected = true;
+        client.setAuthState("authenticated");
         (client as any).config.autoReauth = false;
 
         client.callStartAutoReauth();
@@ -993,6 +997,8 @@ describe("autoReauth タイマー", () => {
 
     it("reauthInterval < 10000ではタイマーが起動しない", () => {
         const client = new AuthTestClient();
+        (client as any).connected = true;
+        client.setAuthState("authenticated");
         (client as any).config.autoReauth = true;
         (client as any).config.reauthInterval = 9999;
 

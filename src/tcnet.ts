@@ -951,11 +951,11 @@ export class TCNetClient extends EventEmitter {
 
     /**
      * 再認証の実行本体
-     * resetAuthSession + sendAuthSequenceで既存フローに合流し、
-     * authenticated/authFailedイベントの発火を待って完了判定する。
-     *
-     * リスナー登録はsendAuthSequenceの前に行い、
-     * Bridgeが即座に応答した場合でもイベントを取りこぼさないようにする。
+     * 認証セッションのうち必要な状態(sessionToken, authTimeoutId)のみリセットし、
+     * Bridgeからのtoken再送とauthenticated/authFailedイベントを待って完了判定する。
+     * resetAuthSessionは呼ばない(bridgeIsWindowsキャッシュを保持するため)。
+     * sendAuthSequenceも呼ばない(sessionToken=nullガードでresetAuthSessionが
+     * 再実行されrefreshing状態が失われるため)。
      * @param timeoutMs - 認証タイムアウト (ms)
      */
     private async executeReauth(timeoutMs: number = AUTH_REFRESH_TIMEOUT): Promise<void> {
