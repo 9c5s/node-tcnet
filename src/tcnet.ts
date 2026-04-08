@@ -905,6 +905,26 @@ export class TCNetClient extends EventEmitter {
         return !!ct && /^[0-9a-f]{16}$/i.test(ct);
     }
 
+    /** 自動再認証タイマーを起動する */
+    private startAutoReauth(): void {
+        if (!this.config.autoReauth || this.config.reauthInterval < 10_000) return;
+        if (this.reauthIntervalId) return;
+        this.reauthIntervalId = setInterval(() => {
+            this.performReauth().catch((err) => {
+                const error = err instanceof Error ? err : new Error(String(err));
+                this.log?.error(error);
+            });
+        }, this.config.reauthInterval);
+    }
+
+    /** 自動再認証タイマーを停止する */
+    private stopAutoReauth(): void {
+        if (this.reauthIntervalId) {
+            clearInterval(this.reauthIntervalId);
+            this.reauthIntervalId = null;
+        }
+    }
+
     /**
      * 再認証を実行する (内部用)
      * authenticated状態でのみ動作する。single-flight保証付き。

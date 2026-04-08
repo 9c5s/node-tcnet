@@ -887,3 +887,43 @@ describe("performReauth", () => {
         expect(handler).toHaveBeenCalledTimes(1);
     });
 });
+
+describe("autoReauth タイマー", () => {
+    it("startAutoReauthでタイマーが起動する", () => {
+        const client = new AuthTestClient();
+        (client as any).config.autoReauth = true;
+        (client as any).config.reauthInterval = 60_000;
+
+        client.callStartAutoReauth();
+        expect(client.getReauthIntervalId()).not.toBeNull();
+        client.callStopAutoReauth();
+    });
+
+    it("autoReauth=falseではタイマーが起動しない", () => {
+        const client = new AuthTestClient();
+        (client as any).config.autoReauth = false;
+
+        client.callStartAutoReauth();
+        expect(client.getReauthIntervalId()).toBeNull();
+    });
+
+    it("reauthInterval < 10000ではタイマーが起動しない", () => {
+        const client = new AuthTestClient();
+        (client as any).config.autoReauth = true;
+        (client as any).config.reauthInterval = 9999;
+
+        client.callStartAutoReauth();
+        expect(client.getReauthIntervalId()).toBeNull();
+    });
+
+    it("stopAutoReauthでタイマーが停止する", () => {
+        const client = new AuthTestClient();
+        (client as any).config.autoReauth = true;
+        (client as any).config.reauthInterval = 60_000;
+
+        client.callStartAutoReauth();
+        expect(client.getReauthIntervalId()).not.toBeNull();
+        client.callStopAutoReauth();
+        expect(client.getReauthIntervalId()).toBeNull();
+    });
+});
