@@ -454,6 +454,7 @@ describe("handleAuthPacket", () => {
 
     it("初回認証成功時にautoReauthタイマーが起動する", () => {
         const client = new AuthTestClient();
+        (client as any).connected = true;
         (client as any).config.autoReauth = true;
         (client as any).config.reauthInterval = 60_000;
         client.setAuthState("pending");
@@ -478,6 +479,7 @@ describe("handleAuthPacket", () => {
 
     it("再認証成功時にstartAutoReauthが重複呼び出しされてもタイマーが1つのまま", () => {
         const client = new AuthTestClient();
+        (client as any).connected = true;
         (client as any).config.autoReauth = true;
         (client as any).config.reauthInterval = 60_000;
         client.setAuthState("pending");
@@ -938,17 +940,47 @@ describe("performReauth", () => {
 
         expect(handler).toHaveBeenCalledTimes(1);
     });
+
+    it("失敗後にauthStateがfailedに戻る", async () => {
+        const client = new AuthTestClient();
+        client.setAuthState("authenticated");
+
+        const promise = client.callPerformReauth();
+        expect(client.authenticationState).toBe("refreshing");
+
+        // 手動で認証失敗をシミュレート
+        setTimeout(() => client.emit("authFailed"), 10);
+        await expect(promise).rejects.toThrow();
+
+        // タイムアウト等の失敗でrefreshingのまま残らずfailedに戻る
+        // (authFailedパスではhandleAuthPacketが先にfailedに設定するが、
+        //  disconnect等でrefreshingのままcatchに入った場合の回復を検証)
+        expect(client.authenticationState).toBe("failed");
+    });
 });
 
 describe("autoReauth タイマー", () => {
     it("startAutoReauthでタイマーが起動する", () => {
         const client = new AuthTestClient();
+        (client as any).connected = true;
+        client.setAuthState("authenticated");
         (client as any).config.autoReauth = true;
         (client as any).config.reauthInterval = 60_000;
 
         client.callStartAutoReauth();
         expect(client.getReauthIntervalId()).not.toBeNull();
         client.callStopAutoReauth();
+    });
+
+    it("未接続状態ではタイマーが起動しない", () => {
+        const client = new AuthTestClient();
+        (client as any).config.autoReauth = true;
+        (client as any).config.reauthInterval = 60_000;
+        // connectedがfalse(デフォルト)の場合
+        expect((client as any).connected).toBe(false);
+
+        client.callStartAutoReauth();
+        expect(client.getReauthIntervalId()).toBeNull();
     });
 
     it("autoReauth=falseではタイマーが起動しない", () => {
@@ -970,6 +1002,8 @@ describe("autoReauth タイマー", () => {
 
     it("reauthInterval = 10000 (下限ちょうど) ではタイマーが起動する", () => {
         const client = new AuthTestClient();
+        (client as any).connected = true;
+        client.setAuthState("authenticated");
         (client as any).config.autoReauth = true;
         (client as any).config.reauthInterval = 10_000;
 
@@ -980,6 +1014,8 @@ describe("autoReauth タイマー", () => {
 
     it("stopAutoReauthでタイマーが停止する", () => {
         const client = new AuthTestClient();
+        (client as any).connected = true;
+        client.setAuthState("authenticated");
         (client as any).config.autoReauth = true;
         (client as any).config.reauthInterval = 60_000;
 
@@ -1037,6 +1073,8 @@ describe("reauth (public API)", () => {
 describe("disconnect時のreauthクリーンアップ", () => {
     it("stopAutoReauthが呼ばれタイマーが停止する", () => {
         const client = new AuthTestClient();
+        (client as any).connected = true;
+        client.setAuthState("authenticated");
         (client as any).config.autoReauth = true;
         (client as any).config.reauthInterval = 60_000;
         client.callStartAutoReauth();

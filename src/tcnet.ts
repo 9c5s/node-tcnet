@@ -914,6 +914,7 @@ export class TCNetClient extends EventEmitter {
 
     /** 自動再認証タイマーを起動する */
     private startAutoReauth(): void {
+        if (!this.connected || this._authState !== "authenticated") return;
         if (!this.config.autoReauth || this.config.reauthInterval < 10_000) return;
         if (this.reauthIntervalId) return;
         this.reauthIntervalId = setInterval(() => {
@@ -1004,6 +1005,13 @@ export class TCNetClient extends EventEmitter {
             this.emit("reauthenticated");
         } catch (err) {
             cleanup?.();
+            // タイムアウト等で失敗した場合、"refreshing"のままだと
+            // ユーザーが永遠に再認証中と誤認する。"failed"に戻すことで
+            // handleAuthPacketがBridgeからのtoken再送を受理して自然回復できる
+            if (this._authState === "refreshing") {
+                this.sessionToken = null;
+                this._authState = "failed";
+            }
             this.emit("reauthFailed", err instanceof Error ? err : new Error(String(err)));
             throw err;
         }
