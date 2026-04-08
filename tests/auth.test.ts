@@ -451,6 +451,49 @@ describe("handleAuthPacket", () => {
         expect(client.authenticationState).toBe("none");
         expect(client.getSessionToken()).toBeNull();
     });
+
+    it("初回認証成功時にautoReauthタイマーが起動する", () => {
+        const client = new AuthTestClient();
+        (client as any).config.autoReauth = true;
+        (client as any).config.reauthInterval = 60_000;
+        client.setAuthState("pending");
+
+        client.callHandleAuth(createErrorPacket(0xff, 0xff, 0xff));
+
+        expect(client.authenticationState).toBe("authenticated");
+        expect(client.getReauthIntervalId()).not.toBeNull();
+        client.callStopAutoReauth(); // クリーンアップ
+    });
+
+    it("autoReauth=falseの場合タイマーは起動しない", () => {
+        const client = new AuthTestClient();
+        (client as any).config.autoReauth = false;
+        client.setAuthState("pending");
+
+        client.callHandleAuth(createErrorPacket(0xff, 0xff, 0xff));
+
+        expect(client.authenticationState).toBe("authenticated");
+        expect(client.getReauthIntervalId()).toBeNull();
+    });
+
+    it("再認証成功時にstartAutoReauthが重複呼び出しされてもタイマーが1つのまま", () => {
+        const client = new AuthTestClient();
+        (client as any).config.autoReauth = true;
+        (client as any).config.reauthInterval = 60_000;
+        client.setAuthState("pending");
+
+        // 初回認証成功 → タイマー起動
+        client.callHandleAuth(createErrorPacket(0xff, 0xff, 0xff));
+        const firstTimerId = client.getReauthIntervalId();
+        expect(firstTimerId).not.toBeNull();
+
+        // 再認証成功 (再びauthenticatedパスを通る) → タイマーは既存のまま
+        client.setAuthState("pending");
+        client.callHandleAuth(createErrorPacket(0xff, 0xff, 0xff));
+        expect(client.getReauthIntervalId()).toBe(firstTimerId);
+
+        client.callStopAutoReauth(); // クリーンアップ
+    });
 });
 
 // sendAuthSequenceをモックせずに状態リセット動作を検証するヘルパー

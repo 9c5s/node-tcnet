@@ -1104,6 +1104,7 @@ export class TCNetClient extends EventEmitter {
                 this._authState = "authenticated";
                 this.log?.debug("TCNASDP authentication succeeded");
                 this.emit("authenticated");
+                this.startAutoReauth();
             } else if (b0 === 0xff && b1 === 0xff && b2 === 0x0d) {
                 if (this.authTimeoutId) {
                     clearTimeout(this.authTimeoutId);
