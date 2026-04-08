@@ -10,6 +10,7 @@ import { generateAuthPayload, type AuthState } from "./auth";
 const TCNET_BROADCAST_PORT = 60000;
 const TCNET_TIMESTAMP_PORT = 60001;
 const AUTH_RESPONSE_TIMEOUT = 5000;
+const AUTH_REFRESH_TIMEOUT = 100_000;
 
 type STORED_REQUEST = {
     resolve: (value: nw.TCNetDataPacket | PromiseLike<nw.TCNetDataPacket>) => void;
@@ -54,6 +55,14 @@ export class TCNetConfiguration {
     switchRetryInterval = 1000;
     /** XTEA暗号文 (16桁hex文字列)。設定時はTCNASDP認証を実行する。環境変数 TCNET_XTEA_CIPHERTEXT で上書き可能 */
     xteaCiphertext?: string = process.env.TCNET_XTEA_CIPHERTEXT;
+    /** 認証の自動リフレッシュを有効にするかどうか。xteaCiphertext設定時、初回認証成功後にタイマーが起動する */
+    autoReauth = true;
+    /**
+     * 自動リフレッシュの実行間隔 (ミリ秒)
+     * Bridgeの認証タイムアウト(約100秒)より短く設定する必要がある。
+     * デフォルト60000ms(60秒)はv3a実機テストで240秒間のLICENSE維持が実証された値である
+     */
+    reauthInterval = 60_000;
 }
 
 /**

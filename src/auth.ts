@@ -21,7 +21,7 @@ export const DATA_HASH = 0xc688a0af;
  * TCNASDP認証の状態を表す型
  * @category Auth
  */
-export type AuthState = "none" | "pending" | "authenticated" | "failed";
+export type AuthState = "none" | "pending" | "authenticated" | "refreshing" | "failed";
 
 /**
  * FNV-1a Int32変種ハッシュ関数
