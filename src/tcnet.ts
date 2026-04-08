@@ -966,8 +966,10 @@ export class TCNetClient extends EventEmitter {
             // この状態でもBridgeからのtoken受信を正常に処理できる
             this._authState = "refreshing";
 
-            // リスナーをsendAuthSequenceの前に登録する
-            // Bridgeが即座に応答するケース(テスト環境等)でのイベント取りこぼしを防ぐ
+            // リスナーを登録してBridgeからのtoken再発行を待つ
+            // sendAuthSequenceは呼ばない: sessionToken=nullのガードでresetAuthSessionが
+            // 再実行されrefreshing状態が失われるため。Bridgeは定期的なOptInブロードキャスト
+            // 経由でtoken(AppData cmd=1)を再送するので、明示的なhello送信は不要である
             const authPromise = new Promise<void>((resolve, reject) => {
                 const onAuth = (): void => {
                     doCleanup();
@@ -992,7 +994,6 @@ export class TCNetClient extends EventEmitter {
                 this.once("authFailed", onFail);
             });
 
-            await this.sendAuthSequence();
             await authPromise;
             this.emit("reauthenticated");
         } catch (err) {
