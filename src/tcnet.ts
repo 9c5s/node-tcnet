@@ -103,6 +103,8 @@ export class TCNetClient extends EventEmitter {
     private sessionToken: number | null = null;
     private authTimeoutId: NodeJS.Timeout | null = null;
     private bridgeIsWindows: boolean | null = null;
+    private reauthIntervalId: NodeJS.Timeout | null = null;
+    private reauthPromise: Promise<void> | null = null;
 
     /**
      * TCNetClientを初期化する
@@ -903,6 +905,73 @@ export class TCNetClient extends EventEmitter {
         return !!ct && /^[0-9a-f]{16}$/i.test(ct);
     }
 
+    /**
+     * 再認証を実行する (内部用)
+     * authenticated状態でのみ動作する。single-flight保証付き。
+     * @param timeoutMs - 認証タイムアウト (ms)
+     */
+    private async performReauth(timeoutMs: number = AUTH_REFRESH_TIMEOUT): Promise<void> {
+        if (this._authState !== "authenticated" || this.reauthPromise) return;
+        this.reauthPromise = this.executeReauth(timeoutMs);
+        try {
+            await this.reauthPromise;
+        } finally {
+            this.reauthPromise = null;
+        }
+    }
+
+    /**
+     * 再認証の実行本体
+     * resetAuthSession + sendAuthSequenceで既存フローに合流し、
+     * authenticated/authFailedイベントの発火を待って完了判定する。
+     *
+     * リスナー登録はsendAuthSequenceの前に行い、
+     * Bridgeが即座に応答した場合でもイベントを取りこぼさないようにする。
+     * @param timeoutMs - 認証タイムアウト (ms)
+     */
+    private async executeReauth(timeoutMs: number = AUTH_REFRESH_TIMEOUT): Promise<void> {
+        try {
+            this.resetAuthSession();
+            // resetAuthSessionがstate="none"にリセットした後、"refreshing"を再設定する
+            // これによりユーザーがauthenticationStateで再認証中を観測できる
+            // handleAuthPacketはcmd=1受理条件に"refreshing"を含むため、
+            // この状態でもBridgeからのtoken受信を正常に処理できる
+            this._authState = "refreshing";
+
+            // リスナーをsendAuthSequenceの前に登録する
+            // Bridgeが即座に応答するケース(テスト環境等)でのイベント取りこぼしを防ぐ
+            const authPromise = new Promise<void>((resolve, reject) => {
+                const onAuth = (): void => {
+                    cleanup();
+                    this._authState = "authenticated";
+                    resolve();
+                };
+                const onFail = (): void => {
+                    cleanup();
+                    reject(new Error("Reauth failed"));
+                };
+                const timer = setTimeout(() => {
+                    cleanup();
+                    reject(new Error("Reauth timeout"));
+                }, timeoutMs);
+                const cleanup = (): void => {
+                    this.removeListener("authenticated", onAuth);
+                    this.removeListener("authFailed", onFail);
+                    clearTimeout(timer);
+                };
+                this.once("authenticated", onAuth);
+                this.once("authFailed", onFail);
+            });
+
+            await this.sendAuthSequence();
+            await authPromise;
+            this.emit("reauthenticated");
+        } catch (err) {
+            this.emit("reauthFailed", err instanceof Error ? err : new Error(String(err)));
+            throw err;
+        }
+    }
+
     /** 認証セッションをリセットする (再試行可能な状態に戻す) */
     private resetAuthSession(): void {
         this._authState = "none";
@@ -983,7 +1052,7 @@ export class TCNetClient extends EventEmitter {
             if (
                 packet.cmd === 1 &&
                 this.sessionToken === null &&
-                (this._authState === "none" || this._authState === "failed")
+                (this._authState === "none" || this._authState === "failed" || this._authState === "refreshing")
             ) {
                 this.sessionToken = packet.token;
                 this._authState = "pending";
