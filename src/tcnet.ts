@@ -60,6 +60,7 @@ export class TCNetConfiguration {
     /**
      * 自動リフレッシュの実行間隔 (ミリ秒)
      * Bridgeの認証タイムアウト(約100秒)より短く設定する必要がある。
+     * 10000ms未満に設定された場合は自動リフレッシュが有効にならない。
      * デフォルト60000ms(60秒)はv3a実機テストで240秒間のLICENSE維持が実証された値である
      */
     reauthInterval = 60_000;
@@ -959,9 +960,14 @@ export class TCNetClient extends EventEmitter {
     private async executeReauth(timeoutMs: number = AUTH_REFRESH_TIMEOUT): Promise<void> {
         let cleanup: (() => void) | undefined;
         try {
-            this.resetAuthSession();
-            // resetAuthSessionがstate="none"にリセットした後、"refreshing"を再設定する
-            // これによりユーザーがauthenticationStateで再認証中を観測できる
+            // resetAuthSessionの代わりに必要な状態のみ個別リセットする
+            // bridgeIsWindowsキャッシュを保持して毎回のOS判定pingを回避する
+            // (Bridge OSはセッション中に変わらない)
+            this.sessionToken = null;
+            if (this.authTimeoutId) {
+                clearTimeout(this.authTimeoutId);
+                this.authTimeoutId = null;
+            }
             // handleAuthPacketはcmd=1受理条件に"refreshing"を含むため、
             // この状態でもBridgeからのtoken受信を正常に処理できる
             this._authState = "refreshing";
@@ -1142,11 +1148,11 @@ export class TCNetClient extends EventEmitter {
         if (!this.hasValidXteaCiphertext()) {
             throw new Error("xteaCiphertext not configured");
         }
-        if (this._authState !== "authenticated" && this._authState !== "refreshing") {
-            throw new Error("Cannot reauth: not authenticated");
-        }
         if (this.reauthPromise) {
             return this.reauthPromise;
+        }
+        if (this._authState !== "authenticated") {
+            throw new Error("Cannot reauth: not authenticated");
         }
         return this.performReauth(timeoutMs);
     }
