@@ -1118,6 +1118,28 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
+     * 認証を手動でリフレッシュする
+     *
+     * 自動リフレッシュが無効化されている場合、または任意のタイミングで認証を
+     * 更新したい場合に呼び出す。既にリフレッシュ中の場合は進行中のPromiseを返す。
+     * @param timeoutMs - Bridgeからの応答待ちタイムアウト (デフォルト100000ms)
+     * @returns 認証完了時にresolveする
+     * @throws {Error} xteaCiphertext未設定、未認証、接続未確立の場合
+     */
+    public async reauth(timeoutMs: number = AUTH_REFRESH_TIMEOUT): Promise<void> {
+        if (!this.hasValidXteaCiphertext()) {
+            throw new Error("xteaCiphertext not configured");
+        }
+        if (this._authState !== "authenticated" && this._authState !== "refreshing") {
+            throw new Error("Cannot reauth: not authenticated");
+        }
+        if (this.reauthPromise) {
+            return this.reauthPromise;
+        }
+        return this.performReauth(timeoutMs);
+    }
+
+    /**
      * データリクエストをブロードキャストで送信する
      *
      * 実機テストの結果、RequestパケットはbroadcastSocket(60000)経由で

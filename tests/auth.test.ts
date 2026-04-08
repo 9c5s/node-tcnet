@@ -927,3 +927,41 @@ describe("autoReauth タイマー", () => {
         expect(client.getReauthIntervalId()).toBeNull();
     });
 });
+
+describe("reauth (public API)", () => {
+    it("未認証状態ではエラーをスローする", async () => {
+        const client = new AuthTestClient();
+        client.setAuthState("none");
+        await expect(client.callReauth()).rejects.toThrow("Cannot reauth: not authenticated");
+    });
+
+    it("xteaCiphertext未設定ではエラーをスローする", async () => {
+        const client = new AuthTestClient();
+        client.setAuthState("authenticated");
+        client.clearXteaCiphertext();
+        await expect(client.callReauth()).rejects.toThrow("xteaCiphertext not configured");
+    });
+
+    it("authenticated状態で呼び出せる", async () => {
+        const client = new AuthTestClient();
+        client.setAuthState("authenticated");
+
+        const promise = client.callReauth();
+        // authenticatedイベントをシミュレート
+        setTimeout(() => client.emit("authenticated"), 10);
+        await promise;
+        expect(client.authenticationState).toBe("authenticated");
+    });
+
+    it("single-flight: 進行中のreauthに相乗りする", async () => {
+        const client = new AuthTestClient();
+        client.setAuthState("authenticated");
+
+        const p1 = client.callReauth();
+        const p2 = client.callReauth();
+
+        // 両方同じPromiseを共有する
+        setTimeout(() => client.emit("authenticated"), 10);
+        await Promise.all([p1, p2]);
+    });
+});
