@@ -268,6 +268,24 @@ class AuthTestClient extends TCNetClient {
     public clearXteaCiphertext(): void {
         (this as any).config.xteaCiphertext = undefined;
     }
+    public getReauthPromise(): Promise<void> | null {
+        return (this as any).reauthPromise;
+    }
+    public async callPerformReauth(): Promise<void> {
+        return (this as any).performReauth();
+    }
+    public async callReauth(timeoutMs?: number): Promise<void> {
+        return (this as any).reauth(timeoutMs);
+    }
+    public callStartAutoReauth(): void {
+        (this as any).startAutoReauth();
+    }
+    public callStopAutoReauth(): void {
+        (this as any).stopAutoReauth();
+    }
+    public getReauthIntervalId(): NodeJS.Timeout | null {
+        return (this as any).reauthIntervalId;
+    }
 }
 
 function createAppDataPacket(cmd: number, token: number): TCNetApplicationDataPacket {
@@ -802,5 +820,70 @@ describe("sendAuthSequence XTEA暗号文バイトリバース", () => {
         (client as any).resetAuthSession();
 
         expect(client.getBridgeIsWindows()).toBeNull();
+    });
+});
+
+describe("performReauth", () => {
+    it("authenticated以外の状態では何もしない", async () => {
+        const client = new AuthTestClient();
+        client.setAuthState("none");
+        await client.callPerformReauth();
+        expect(client.authenticationState).toBe("none");
+    });
+
+    it("authenticatedからresetAuthSessionで初期化されauthenticatedイベントで復帰する", async () => {
+        const client = new AuthTestClient();
+        client.setAuthState("authenticated");
+
+        const promise = client.callPerformReauth();
+        // executeReauthがresetAuthSession後にstate=refreshingを設定する
+        // sendAuthSequenceのawaitまで同期実行されるため、ここで観測可能
+        expect(client.authenticationState).toBe("refreshing");
+
+        // authenticatedイベントをシミュレートして再認証完了
+        setTimeout(() => client.emit("authenticated"), 10);
+        await promise;
+        expect(client.authenticationState).toBe("authenticated");
+    });
+
+    it("single-flight: reauthPromiseが存在する間は2回目がskipされる", async () => {
+        const client = new AuthTestClient();
+        client.setAuthState("authenticated");
+
+        const p1 = client.callPerformReauth();
+        // reauthPromiseが設定されているので2回目はskip (stateがauthenticatedでないため)
+        const p2 = client.callPerformReauth();
+        await expect(p2).resolves.toBeUndefined();
+
+        setTimeout(() => client.emit("authenticated"), 10);
+        await p1;
+    });
+
+    it("reauthenticatedイベントが成功時に発火する", async () => {
+        const client = new AuthTestClient();
+        client.setAuthState("authenticated");
+        const handler = vi.fn();
+        client.on("reauthenticated", handler);
+
+        const promise = client.callPerformReauth();
+        // 手動で認証成功をシミュレート
+        setTimeout(() => client.emit("authenticated"), 10);
+        await promise;
+
+        expect(handler).toHaveBeenCalledTimes(1);
+    });
+
+    it("reauthFailedイベントが失敗時に発火する", async () => {
+        const client = new AuthTestClient();
+        client.setAuthState("authenticated");
+        const handler = vi.fn();
+        client.on("reauthFailed", handler);
+
+        const promise = client.callPerformReauth();
+        // 手動で認証失敗をシミュレート
+        setTimeout(() => client.emit("authFailed"), 10);
+        await expect(promise).rejects.toThrow();
+
+        expect(handler).toHaveBeenCalledTimes(1);
     });
 });
