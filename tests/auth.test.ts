@@ -884,7 +884,10 @@ describe("performReauth", () => {
         expect(client.authenticationState).toBe("refreshing");
 
         // authenticatedイベントをシミュレートして再認証完了
-        setTimeout(() => client.emit("authenticated"), 10);
+        setTimeout(() => {
+            client.setAuthState("authenticated");
+            client.emit("authenticated");
+        }, 10);
         await promise;
         expect(client.authenticationState).toBe("authenticated");
     });
@@ -898,7 +901,10 @@ describe("performReauth", () => {
         const p2 = client.callPerformReauth();
         await expect(p2).resolves.toBeUndefined();
 
-        setTimeout(() => client.emit("authenticated"), 10);
+        setTimeout(() => {
+            client.setAuthState("authenticated");
+            client.emit("authenticated");
+        }, 10);
         await p1;
     });
 
@@ -910,7 +916,10 @@ describe("performReauth", () => {
 
         const promise = client.callPerformReauth();
         // 手動で認証成功をシミュレート
-        setTimeout(() => client.emit("authenticated"), 10);
+        setTimeout(() => {
+            client.setAuthState("authenticated");
+            client.emit("authenticated");
+        }, 10);
         await promise;
 
         expect(handler).toHaveBeenCalledTimes(1);
@@ -991,7 +1000,10 @@ describe("reauth (public API)", () => {
 
         const promise = client.callReauth();
         // authenticatedイベントをシミュレート
-        setTimeout(() => client.emit("authenticated"), 10);
+        setTimeout(() => {
+            client.setAuthState("authenticated");
+            client.emit("authenticated");
+        }, 10);
         await promise;
         expect(client.authenticationState).toBe("authenticated");
     });
@@ -1004,7 +1016,10 @@ describe("reauth (public API)", () => {
         const p2 = client.callReauth();
 
         // 両方同じPromiseを共有する
-        setTimeout(() => client.emit("authenticated"), 10);
+        setTimeout(() => {
+            client.setAuthState("authenticated");
+            client.emit("authenticated");
+        }, 10);
         await Promise.all([p1, p2]);
     });
 });

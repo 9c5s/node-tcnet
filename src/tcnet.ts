@@ -916,6 +916,7 @@ export class TCNetClient extends EventEmitter {
                 this.log?.error(error);
             });
         }, this.config.reauthInterval);
+        this.reauthIntervalId.unref();
     }
 
     /** 自動再認証タイマーを停止する */
@@ -964,7 +965,6 @@ export class TCNetClient extends EventEmitter {
             const authPromise = new Promise<void>((resolve, reject) => {
                 const onAuth = (): void => {
                     cleanup();
-                    this._authState = "authenticated";
                     resolve();
                 };
                 const onFail = (): void => {
