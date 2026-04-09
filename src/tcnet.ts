@@ -71,11 +71,11 @@ function closeSocket(socket: Socket): Promise<void> {
  * @category Client
  */
 export class TCNetClient extends EventEmitter {
-    private config: TCNetConfiguration;
-    private broadcastSocket: Socket | null = null;
+    protected config: TCNetConfiguration;
+    protected broadcastSocket: Socket | null = null;
     private unicastSocket: Socket | null = null;
     private timestampSocket: Socket | null = null;
-    private server: RemoteInfo | null = null;
+    protected server: RemoteInfo | null = null;
     private seq = 0;
     private uptime = 0;
     private connected = false;
@@ -86,17 +86,17 @@ export class TCNetClient extends EventEmitter {
     private broadcastSockets: Map<string, Socket> = new Map();
     private timestampSockets: Map<string, Socket> = new Map();
     private adapterMap: Map<string, NetworkAdapterInfo> = new Map();
-    private _selectedAdapter: NetworkAdapterInfo | null = null;
+    protected _selectedAdapter: NetworkAdapterInfo | null = null;
     private switching = false;
     private connectTimeoutId: NodeJS.Timeout | null = null;
     private detectionTimeoutId: NodeJS.Timeout | null = null;
     private detectingAdapter = false;
-    private _authState: AuthState = "none";
-    private sessionToken: number | null = null;
+    protected _authState: AuthState = "none";
+    protected sessionToken: number | null = null;
     private authTimeoutId: NodeJS.Timeout | null = null;
-    private bridgeIsWindows: boolean | null = null;
+    protected bridgeIsWindows: boolean | null = null;
     // authenticated 状態での sendAuthCommandOnly 連続失敗回数を記録する
-    private authResponseFailureCount: number = 0;
+    protected authResponseFailureCount: number = 0;
     // 連続失敗がこの閾値に到達したら resetAuthSession で再認証を促す
     private static readonly AUTH_RESPONSE_FAILURE_THRESHOLD = 2;
 
@@ -818,7 +818,7 @@ export class TCNetClient extends EventEmitter {
      * 結果はインスタンス変数にキャッシュし、セッション中1回だけ検出する。
      * @returns Windowsならtrue、それ以外ならfalse
      */
-    private async detectBridgeIsWindows(): Promise<boolean> {
+    protected async detectBridgeIsWindows(): Promise<boolean> {
         if (this.bridgeIsWindows !== null) return this.bridgeIsWindows;
 
         const bridgeIp = this.server?.address;
@@ -909,7 +909,7 @@ export class TCNetClient extends EventEmitter {
     }
 
     /** 認証セッションをリセットする (再試行可能な状態に戻す) */
-    private resetAuthSession(): void {
+    protected resetAuthSession(): void {
         this._authState = "none";
         this.sessionToken = null;
         this.bridgeIsWindows = null;
@@ -928,7 +928,7 @@ export class TCNetClient extends EventEmitter {
      * ガード失敗時は null を返し、呼び出し元が失敗時の扱い (リセット or 無視) を決める。
      * @returns 送信用の payload Buffer、または null (ガード失敗時)
      */
-    private async prepareAuthPayload(): Promise<Buffer | null> {
+    protected async prepareAuthPayload(): Promise<Buffer | null> {
         if (!this.server || !this.broadcastSocket || this.sessionToken === null) return null;
         if (!this.hasValidXteaCiphertext()) return null;
 
@@ -955,7 +955,7 @@ export class TCNetClient extends EventEmitter {
      * cmd=0 (hello) の後に50ms待機してcmd=2 (認証) を送信する。
      * 実機テストの結果、AppDataはbroadcastSocket(60000)経由でブロードキャストアドレスに送信する。
      */
-    private async sendAuthSequence(): Promise<void> {
+    protected async sendAuthSequence(): Promise<void> {
         if (!this.server || !this.broadcastSocket || this.sessionToken === null) {
             this.resetAuthSession();
             return;
@@ -1001,7 +1001,7 @@ export class TCNetClient extends EventEmitter {
      *   弾かれるが、ここでは authenticated 状態での "continuation" として扱うため
      *   状態変更は不要)
      */
-    private async sendAuthCommandOnly(): Promise<void> {
+    protected async sendAuthCommandOnly(): Promise<void> {
         const payload = await this.prepareAuthPayload();
         if (!payload) return;
 
@@ -1016,7 +1016,7 @@ export class TCNetClient extends EventEmitter {
      * @param packet - 受信したパケット
      * @param rinfo - 送信元情報
      */
-    private handleAuthPacket(packet: nw.TCNetPacket | null, rinfo: RemoteInfo): void {
+    protected handleAuthPacket(packet: nw.TCNetPacket | null, rinfo: RemoteInfo): void {
         if (!packet || !this.hasValidXteaCiphertext()) return;
         if (!this.server || rinfo.address !== this.server.address) return;
 

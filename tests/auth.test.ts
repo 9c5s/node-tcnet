@@ -3,6 +3,7 @@ import { fnv1aInt32, generateAuthPayload, DATA_HASH } from "../src/auth";
 import { TCNetApplicationDataPacket, TCNetErrorPacket, TCNetMessageType } from "../src/network";
 import { TCNetClient, TCNetConfiguration, type TCNetLogger } from "../src/tcnet";
 import { writeValidHeader, createHeader, isolateXteaEnv } from "./helpers";
+import { AuthTestClient, AuthSequenceTestClient } from "./auth-test-helpers";
 
 isolateXteaEnv();
 
@@ -243,33 +244,6 @@ describe("TCNetErrorPacket", () => {
     });
 });
 
-// handleAuthPacketとsendAuthSequenceにアクセスするテストヘルパー
-const MASTER_RINFO = { address: "192.168.0.100", port: 65207, family: "IPv4", size: 0 };
-
-class AuthTestClient extends TCNetClient {
-    constructor() {
-        super();
-        // xteaCiphertextを設定して認証を有効化する
-        (this as any).config.xteaCiphertext = "0000000000000000";
-        // sendAuthSequenceをモックしてネットワーク操作を回避する
-        (this as any).sendAuthSequence = vi.fn().mockResolvedValue(undefined);
-        // serverをMasterのrinfoに設定する
-        (this as any).server = { address: MASTER_RINFO.address, port: MASTER_RINFO.port };
-    }
-    public callHandleAuth(packet: any, rinfo = MASTER_RINFO): void {
-        (this as any).handleAuthPacket(packet, rinfo);
-    }
-    public getSessionToken(): number | null {
-        return (this as any).sessionToken;
-    }
-    public setAuthState(state: string): void {
-        (this as any)._authState = state;
-    }
-    public clearXteaCiphertext(): void {
-        (this as any).config.xteaCiphertext = undefined;
-    }
-}
-
 function createAppDataPacket(cmd: number, token: number): TCNetApplicationDataPacket {
     const buffer = Buffer.alloc(62);
     writeValidHeader(buffer, TCNetMessageType.ApplicationData);
@@ -395,7 +369,7 @@ describe("handleAuthPacket", () => {
         // (sendAuthCommandOnlyはbroadcastSocket未設定のため実際の送信には至らない)
         const client = new AuthTestClient();
         client.setAuthState("authenticated");
-        (client as any).sessionToken = 0x12345678;
+        client.setSessionToken(0x12345678);
         const appData = createAppDataPacket(1, 0x12345678);
 
         client.callHandleAuth(appData);
@@ -429,7 +403,7 @@ describe("handleAuthPacket", () => {
 
     it("serverが未設定の場合はパケットを無視する", () => {
         const client = new AuthTestClient();
-        (client as any).server = null;
+        client.clearServer();
         const appData = createAppDataPacket(1, 0xdeec6dfc);
 
         client.callHandleAuth(appData);
@@ -438,45 +412,6 @@ describe("handleAuthPacket", () => {
         expect(client.getSessionToken()).toBeNull();
     });
 });
-
-// sendAuthSequenceをモックせずに状態リセット動作を検証するヘルパー
-class AuthSequenceTestClient extends TCNetClient {
-    constructor(xteaCiphertext = "8ee0dc051b1ddf8b") {
-        super();
-        (this as any).config.xteaCiphertext = xteaCiphertext;
-        (this as any).server = { address: MASTER_RINFO.address, port: MASTER_RINFO.port };
-    }
-    public getSessionToken(): number | null {
-        return (this as any).sessionToken;
-    }
-    public setSessionToken(token: number): void {
-        (this as any).sessionToken = token;
-    }
-    public setAuthState(state: string): void {
-        (this as any)._authState = state;
-    }
-    public callHandleAuth(packet: any, rinfo = MASTER_RINFO): void {
-        (this as any).handleAuthPacket(packet, rinfo);
-    }
-    public setBroadcastSocket(socket: any): void {
-        (this as any).broadcastSocket = socket;
-    }
-    public setSelectedAdapter(adapter: any): void {
-        (this as any)._selectedAdapter = adapter;
-    }
-    public callDetectBridgeIsWindows(): Promise<boolean> {
-        return (this as any).detectBridgeIsWindows();
-    }
-    public getBridgeIsWindows(): boolean | null {
-        return (this as any).bridgeIsWindows;
-    }
-    public setBridgeIsWindows(value: boolean | null): void {
-        (this as any).bridgeIsWindows = value;
-    }
-    public setServer(server: any): void {
-        (this as any).server = server;
-    }
-}
 
 describe("sendAuthSequence 状態リセット", () => {
     it("xteaCiphertextが不正な場合、authStateとsessionTokenがリセットされる", async () => {
@@ -488,7 +423,7 @@ describe("sendAuthSequence 状態リセット", () => {
         });
 
         // sendAuthSequenceを直接呼び出す
-        await (client as any).sendAuthSequence();
+        await client.callSendAuthSequence();
 
         expect(client.authenticationState).toBe("none");
         expect(client.getSessionToken()).toBeNull();
@@ -500,7 +435,7 @@ describe("sendAuthSequence 状態リセット", () => {
         client.setAuthState("pending");
         // broadcastSocket未設定 (null)
 
-        await (client as any).sendAuthSequence();
+        await client.callSendAuthSequence();
 
         expect(client.authenticationState).toBe("none");
         expect(client.getSessionToken()).toBeNull();
@@ -515,13 +450,13 @@ describe("sendAuthSequence 状態リセット", () => {
                 throw new Error("send failed");
             }),
         });
-        (client as any).config.broadcastAddress = "255.255.255.255";
+        client.setBroadcastAddress("255.255.255.255");
 
         // handleAuthPacket経由のcatchハンドラで呼ばれることを検証
         const appData = createAppDataPacket(1, 0xdeec6dfc);
         // authStateをnoneに戻してcmd=1受付条件を満たす
         client.setAuthState("none");
-        (client as any).sessionToken = null;
+        client.setSessionToken(null);
         client.callHandleAuth(appData);
 
         // catchハンドラは非同期なのでtick待ち
@@ -654,7 +589,7 @@ describe("認証タイムアウト", () => {
         try {
             const client = new AuthSequenceTestClient();
             // sendAuthSequenceをモックして成功させる (pendingのまま残る状況を再現)
-            (client as any).sendAuthSequence = vi.fn().mockResolvedValue(undefined);
+            client.setSendAuthSequenceMock(vi.fn().mockResolvedValue(undefined));
             client.setBroadcastSocket({
                 send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()),
             });
@@ -676,7 +611,7 @@ describe("認証タイムアウト", () => {
         vi.useFakeTimers();
         try {
             const client = new AuthSequenceTestClient();
-            (client as any).sendAuthSequence = vi.fn().mockResolvedValue(undefined);
+            client.setSendAuthSequenceMock(vi.fn().mockResolvedValue(undefined));
             client.setBroadcastSocket({
                 send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()),
             });
@@ -754,12 +689,12 @@ describe("sendAuthSequence XTEA暗号文バイトリバース", () => {
                 cb(null);
             }),
         });
-        (client as any).config.broadcastAddress = "255.255.255.255";
+        client.setBroadcastAddress("255.255.255.255");
 
         // BridgeをWindowsとして事前設定する
         client.setBridgeIsWindows(true);
 
-        await (client as any).sendAuthSequence();
+        await client.callSendAuthSequence();
 
         // 2番目のパケット (cmd=2) のpayloadを検査する
         expect(sentBuffers.length).toBe(2);
@@ -784,12 +719,12 @@ describe("sendAuthSequence XTEA暗号文バイトリバース", () => {
                 cb(null);
             }),
         });
-        (client as any).config.broadcastAddress = "255.255.255.255";
+        client.setBroadcastAddress("255.255.255.255");
 
         // Bridgeをnon-Windowsとして事前設定する
         client.setBridgeIsWindows(false);
 
-        await (client as any).sendAuthSequence();
+        await client.callSendAuthSequence();
 
         expect(sentBuffers.length).toBe(2);
         const authBuf = sentBuffers[1];
@@ -803,7 +738,7 @@ describe("sendAuthSequence XTEA暗号文バイトリバース", () => {
         client.setBridgeIsWindows(true);
         client.setAuthState("pending");
 
-        (client as any).resetAuthSession();
+        client.callResetAuthSession();
 
         expect(client.getBridgeIsWindows()).toBeNull();
     });
@@ -832,7 +767,7 @@ describe("sendAuthCommandOnly (authenticated状態でのcmd=1応答)", () => {
         client.setAuthState("authenticated");
         client.setBridgeIsWindows(false);
         client.setSelectedAdapter(createAdapter("192.168.0.10"));
-        (client as any).config.broadcastAddress = "255.255.255.255";
+        client.setBroadcastAddress("255.255.255.255");
         return client;
     }
 
@@ -847,7 +782,7 @@ describe("sendAuthCommandOnly (authenticated状態でのcmd=1応答)", () => {
             }),
         });
 
-        await (client as any).sendAuthCommandOnly();
+        await client.callSendAuthCommandOnly();
 
         // sendAuthSequence とは異なり hello + auth ではなく auth 1 つだけ
         expect(sentBuffers.length).toBe(1);
@@ -857,12 +792,12 @@ describe("sendAuthCommandOnly (authenticated状態でのcmd=1応答)", () => {
 
     it("sessionToken=nullのときは何もしない (authenticated状態を壊さない)", async () => {
         const client = makeClient();
-        (client as any).sessionToken = null;
+        client.setSessionToken(null);
 
         const send = vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb());
         client.setBroadcastSocket({ send });
 
-        await (client as any).sendAuthCommandOnly();
+        await client.callSendAuthCommandOnly();
 
         expect(send).not.toHaveBeenCalled();
         expect(client.authenticationState).toBe("authenticated");
@@ -931,9 +866,9 @@ describe("sendAuthCommandOnly 連続失敗カウンタ", () => {
         client.setAuthState("authenticated");
         client.setBridgeIsWindows(false);
         client.setSelectedAdapter(createAdapter("192.168.0.10"));
-        (client as any).config.broadcastAddress = "255.255.255.255";
+        client.setBroadcastAddress("255.255.255.255");
         if (logger) {
-            (client as any).config.logger = logger;
+            client.setLogger(logger);
         }
         return client;
     }
@@ -967,7 +902,7 @@ describe("sendAuthCommandOnly 連続失敗カウンタ", () => {
         await flushAsync();
 
         // 失敗したのでカウンタは 1 になっているはず
-        expect((client as any).authResponseFailureCount).toBe(1);
+        expect(client.getAuthResponseFailureCount()).toBe(1);
         // 閾値未満なので authenticated のまま
         expect(client.authenticationState).toBe("authenticated");
 
@@ -976,7 +911,7 @@ describe("sendAuthCommandOnly 連続失敗カウンタ", () => {
         await flushAsync();
 
         // Assert: 成功したので 0 にリセットされている
-        expect((client as any).authResponseFailureCount).toBe(0);
+        expect(client.getAuthResponseFailureCount()).toBe(0);
         expect(client.authenticationState).toBe("authenticated");
     });
 
@@ -995,7 +930,7 @@ describe("sendAuthCommandOnly 連続失敗カウンタ", () => {
         await flushAsync();
 
         // Assert: 閾値 (2) 未満なのでセッションはリセットされない
-        expect((client as any).authResponseFailureCount).toBe(1);
+        expect(client.getAuthResponseFailureCount()).toBe(1);
         expect(client.authenticationState).toBe("authenticated");
         expect(client.getSessionToken()).toBe(0xb3fe319e);
     });
@@ -1015,7 +950,7 @@ describe("sendAuthCommandOnly 連続失敗カウンタ", () => {
         await flushAsync();
         // 1 回目失敗後は authenticated 維持
         expect(client.authenticationState).toBe("authenticated");
-        expect((client as any).authResponseFailureCount).toBe(1);
+        expect(client.getAuthResponseFailureCount()).toBe(1);
 
         client.callHandleAuth(appData);
         await flushAsync();
@@ -1024,7 +959,7 @@ describe("sendAuthCommandOnly 連続失敗カウンタ", () => {
         expect(client.authenticationState).toBe("none");
         expect(client.getSessionToken()).toBeNull();
         // resetAuthSession はカウンタも 0 に戻す
-        expect((client as any).authResponseFailureCount).toBe(0);
+        expect(client.getAuthResponseFailureCount()).toBe(0);
     });
 
     it("authenticated状態で異なるtokenのcmd=1を受信するとlogger.warnが呼ばれる", async () => {
