@@ -1084,6 +1084,44 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
+     * Bridge からの cmd=1 (再認証要求) に対して cmd=2 (auth) のみを送り返す
+     *
+     * ShowKontrol の実測挙動 (sk-ext-capture.pcapng) をエミュレートする:
+     * Bridge が cmd=1 を送ってきたら SK は 1-10ms 以内に cmd=2 だけを返す。
+     * 223秒間のキャプチャで 8 回の再認証サイクルが観測され、全て同一tokenで
+     * 完結している (初回ハンドシェイクのみ cmd=0 hello を伴う)。
+     *
+     * sendAuthSequence との違い:
+     * - cmd=0 (hello) を送らない (継続セッションでは不要)
+     * - 50ms 待機しない
+     * - 失敗時に resetAuthSession を呼ばない (authenticated 状態を維持)
+     * - state 遷移を伴わない (Error 応答は handleAuthPacket の "pending" gate で
+     *   弾かれるが、ここでは authenticated 状態での "continuation" として扱うため
+     *   状態変更は不要)
+     */
+    private async sendAuthCommandOnly(): Promise<void> {
+        if (!this.server || !this.broadcastSocket || this.sessionToken === null) return;
+        if (!this.hasValidXteaCiphertext()) return;
+
+        const clientIp = this.getClientIp();
+        if (!clientIp) return;
+
+        const ct = this.config.xteaCiphertext!;
+        const ciphertext = Buffer.from(ct, "hex");
+        const tokenBeforePing = this.sessionToken;
+        if (await this.detectBridgeIsWindows()) {
+            ciphertext.reverse();
+        }
+
+        // 非同期待機中に状態が変わった場合は中止 (authenticated 状態を壊さない)
+        if (!this.server || !this.broadcastSocket || this.sessionToken !== tokenBeforePing) return;
+
+        const payload = generateAuthPayload(this.sessionToken, clientIp, ciphertext);
+        const auth = this.createAppDataPacket(2, this.sessionToken, payload);
+        await this.sendPacket(auth, this.broadcastSocket, TCNET_BROADCAST_PORT, this.config.broadcastAddress);
+    }
+
+    /**
      * 受信パケットから認証ハンドシェイクを処理する
      * AppData cmd=1でトークンを取得し、Error応答で認証成否を判定する
      * @param packet - 受信したパケット
@@ -1110,6 +1148,21 @@ export class TCNetClient extends EventEmitter {
                 }, AUTH_RESPONSE_TIMEOUT);
                 this.sendAuthSequence().catch((err) => {
                     this.resetAuthSession();
+                    const error = err instanceof Error ? err : new Error(String(err));
+                    this.log?.error(error);
+                });
+            } else if (packet.cmd === 1 && this._authState === "authenticated" && this.sessionToken !== null) {
+                // authenticated 状態で cmd=1 を受信 = Bridge からの再認証要求
+                // Bridge は client の応答が来ない場合 cmd=1 を flood し始め、最終的に
+                // license timeout (~100秒) で失効する。毎回応答することで Bridge は
+                // 満足し、次のサイクル (Bridge のタイミング次第で12-90秒) まで沈黙する
+                if (packet.token !== this.sessionToken) {
+                    // 念のためtoken更新 (SKの実測では常に同一tokenだが防御的に)
+                    this.log?.debug(`Auth token updated: 0x${packet.token.toString(16).padStart(8, "0")}`);
+                    this.sessionToken = packet.token;
+                }
+                this.log?.debug("cmd=1 in authenticated state, responding with cmd=2");
+                this.sendAuthCommandOnly().catch((err) => {
                     const error = err instanceof Error ? err : new Error(String(err));
                     this.log?.error(error);
                 });
