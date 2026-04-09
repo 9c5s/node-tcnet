@@ -836,6 +836,37 @@ describe("sendAuthCommandOnly (authenticated状態でのcmd=1応答)", () => {
         // token更新はhandleAuthPacket内で同期的に行われるため即座に検証できる
         expect(client.getSessionToken()).toBe(0xbbbbbbbb);
     });
+
+    it("連続的なcmd=1到着でも状態が一貫して維持される", async () => {
+        // Bridgeがfloodモードに入った場合のシミュレーション。
+        // 10回の連続cmd=1に対して全て正常応答することを検証する。
+        const client = makeClient();
+
+        const sentBuffers: Buffer[] = [];
+        client.setBroadcastSocket({
+            send: vi.fn((buf: Buffer, _port: number, _addr: string, cb: (err: Error | null) => void) => {
+                sentBuffers.push(Buffer.from(buf));
+                cb(null);
+            }),
+        });
+
+        // 10回連続でcmd=1を受信する
+        for (let i = 0; i < 10; i++) {
+            client.callHandleAuth(createAppDataPacket(1, 0xb3fe319e));
+        }
+
+        await flushAsync();
+
+        // 10 回全て cmd=2 で応答していること
+        expect(sentBuffers.length).toBe(10);
+        for (const buf of sentBuffers) {
+            expect(buf[APPDATA_CMD_OFFSET]).toBe(2);
+        }
+        // state は authenticated を維持、sessionToken は不変、失敗カウンタはゼロ
+        expect(client.authenticationState).toBe("authenticated");
+        expect(client.getSessionToken()).toBe(0xb3fe319e);
+        expect(client.getAuthResponseFailureCount()).toBe(0);
+    });
 });
 
 describe("sendAuthCommandOnly 連続失敗カウンタ", () => {

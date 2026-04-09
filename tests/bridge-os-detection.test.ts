@@ -174,6 +174,26 @@ describe("detectBridgeIsWindows", () => {
         expect(execFileMock).toHaveBeenCalledTimes(1);
     });
 
+    it("bridgeIsWindowsキャッシュがnullに戻ると次の呼び出しで再検出される", async () => {
+        // resetAuthSession 経由でキャッシュが null に戻るシナリオをシミュレートする。
+        platformMock.mockReturnValue("win32");
+        mockExecFileSuccess("Reply from 192.168.0.100: bytes=32 time<1ms TTL=128\n");
+        const client = new BridgeOsTestClient();
+        client.setSelectedAdapter(createAdapter("192.168.0.10"));
+
+        // 初回検出 (ping 実行)
+        expect(await client.callDetectBridgeIsWindows()).toBe(true);
+        expect(execFileMock).toHaveBeenCalledTimes(1);
+
+        // キャッシュを null に戻す (resetAuthSession 相当)
+        client.setBridgeIsWindows(null);
+
+        // 次の呼び出しで ping が再度実行されることを検証する
+        expect(await client.callDetectBridgeIsWindows()).toBe(true);
+        expect(execFileMock).toHaveBeenCalledTimes(2);
+        expect(client.getBridgeIsWindows()).toBe(true);
+    });
+
     it("serverがnullの場合はfalseを返しキャッシュしない", async () => {
         const client = new BridgeOsTestClient();
         client.setServer(null);
