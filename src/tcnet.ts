@@ -30,6 +30,7 @@ const MULTI_PACKET_TYPES: Set<number> = new Set([
  */
 export type TCNetLogger = {
     error: (error: Error) => void;
+    warn: (message: string) => void;
     debug: (message: string) => void;
 };
 
@@ -94,6 +95,10 @@ export class TCNetClient extends EventEmitter {
     private sessionToken: number | null = null;
     private authTimeoutId: NodeJS.Timeout | null = null;
     private bridgeIsWindows: boolean | null = null;
+    // authenticated 状態での sendAuthCommandOnly 連続失敗回数を記録する
+    private authResponseFailureCount: number = 0;
+    // 連続失敗がこの閾値に到達したら resetAuthSession で再認証を促す
+    private static readonly AUTH_RESPONSE_FAILURE_THRESHOLD = 2;
 
     /**
      * TCNetClientを初期化する
@@ -899,6 +904,8 @@ export class TCNetClient extends EventEmitter {
         this._authState = "none";
         this.sessionToken = null;
         this.bridgeIsWindows = null;
+        // セッションそのものをリセットするため、連続失敗カウンタも 0 に戻す
+        this.authResponseFailureCount = 0;
         if (this.authTimeoutId) {
             clearTimeout(this.authTimeoutId);
             this.authTimeoutId = null;
@@ -1034,15 +1041,32 @@ export class TCNetClient extends EventEmitter {
                 // license timeout (~100秒) で失効する。毎回応答することで Bridge は
                 // 満足し、次のサイクル (Bridge のタイミング次第で12-90秒) まで沈黙する
                 if (packet.token !== this.sessionToken) {
-                    // 念のためtoken更新 (SKの実測では常に同一tokenだが防御的に)
-                    this.log?.debug(`Auth token updated: 0x${packet.token.toString(16).padStart(8, "0")}`);
+                    // SK の実測では常に同一 token のため、変化は想定外の状況である
+                    this.log?.warn(
+                        `Auth token changed unexpectedly: ` +
+                            `0x${this.sessionToken.toString(16).padStart(8, "0")} -> ` +
+                            `0x${packet.token.toString(16).padStart(8, "0")}`,
+                    );
                     this.sessionToken = packet.token;
                 }
                 this.log?.debug("cmd=1 in authenticated state, responding with cmd=2");
-                this.sendAuthCommandOnly().catch((err) => {
-                    const error = err instanceof Error ? err : new Error(String(err));
-                    this.log?.error(error);
-                });
+                this.sendAuthCommandOnly()
+                    .then(() => {
+                        // 成功時は連続失敗カウンタを 0 に戻す
+                        this.authResponseFailureCount = 0;
+                    })
+                    .catch((err) => {
+                        const error = err instanceof Error ? err : new Error(String(err));
+                        this.log?.error(error);
+                        this.authResponseFailureCount++;
+                        if (this.authResponseFailureCount >= TCNetClient.AUTH_RESPONSE_FAILURE_THRESHOLD) {
+                            // 閾値に到達したらセッションをリセットして再認証フローへ戻す
+                            this.log?.warn(
+                                `Auth response failed ${this.authResponseFailureCount} times consecutively, resetting session`,
+                            );
+                            this.resetAuthSession();
+                        }
+                    });
             }
         } else if (packet instanceof nw.TCNetErrorPacket) {
             if (this._authState !== "pending" || packet.errorData.length < 3) return;

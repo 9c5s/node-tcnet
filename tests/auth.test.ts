@@ -1,7 +1,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { fnv1aInt32, generateAuthPayload, DATA_HASH } from "../src/auth";
 import { TCNetApplicationDataPacket, TCNetErrorPacket, TCNetMessageType } from "../src/network";
-import { TCNetClient, TCNetConfiguration } from "../src/tcnet";
+import { TCNetClient, TCNetConfiguration, type TCNetLogger } from "../src/tcnet";
 import { writeValidHeader, createHeader, isolateXteaEnv } from "./helpers";
 
 isolateXteaEnv();
@@ -905,5 +905,154 @@ describe("sendAuthCommandOnly (authenticated状態でのcmd=1応答)", () => {
 
         // token更新はhandleAuthPacket内で同期的に行われるため即座に検証できる
         expect(client.getSessionToken()).toBe(0xbbbbbbbb);
+    });
+});
+
+describe("sendAuthCommandOnly 連続失敗カウンタ", () => {
+    function createAdapter(ip: string) {
+        return {
+            name: "test0",
+            addresses: [
+                {
+                    address: ip,
+                    netmask: "255.255.255.0",
+                    family: "IPv4" as const,
+                    mac: "00:00:00:00:00:00",
+                    internal: false,
+                    cidr: `${ip}/24`,
+                },
+            ],
+        };
+    }
+
+    function makeClient(logger?: TCNetLogger): AuthSequenceTestClient {
+        const client = new AuthSequenceTestClient();
+        client.setSessionToken(0xb3fe319e);
+        client.setAuthState("authenticated");
+        client.setBridgeIsWindows(false);
+        client.setSelectedAdapter(createAdapter("192.168.0.10"));
+        (client as any).config.broadcastAddress = "255.255.255.255";
+        if (logger) {
+            (client as any).config.logger = logger;
+        }
+        return client;
+    }
+
+    // sendAuthCommandOnly の非同期catch/thenが完了するのを待つ
+    // promise then の後にさらに state 遷移するため複数 microtask を回す
+    async function flushAsync(): Promise<void> {
+        await new Promise((r) => setImmediate(r));
+        await new Promise((r) => setImmediate(r));
+    }
+
+    it("失敗後に成功するとauthResponseFailureCountが0にリセットされる", async () => {
+        // Arrange
+        const client = makeClient();
+        // 1 回目は失敗、2 回目は成功するソケット
+        let callCount = 0;
+        client.setBroadcastSocket({
+            send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: (err: Error | null) => void) => {
+                callCount++;
+                if (callCount === 1) {
+                    cb(new Error("send failed"));
+                } else {
+                    cb(null);
+                }
+            }),
+        });
+
+        // Act: 1 回目の cmd=1 受信 (失敗)
+        const appData = createAppDataPacket(1, 0xb3fe319e);
+        client.callHandleAuth(appData);
+        await flushAsync();
+
+        // 失敗したのでカウンタは 1 になっているはず
+        expect((client as any).authResponseFailureCount).toBe(1);
+        // 閾値未満なので authenticated のまま
+        expect(client.authenticationState).toBe("authenticated");
+
+        // Act: 2 回目の cmd=1 受信 (成功)
+        client.callHandleAuth(appData);
+        await flushAsync();
+
+        // Assert: 成功したので 0 にリセットされている
+        expect((client as any).authResponseFailureCount).toBe(0);
+        expect(client.authenticationState).toBe("authenticated");
+    });
+
+    it("1回失敗してもauthenticated状態が維持される(閾値未満)", async () => {
+        // Arrange
+        const client = makeClient();
+        client.setBroadcastSocket({
+            send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: (err: Error | null) => void) => {
+                cb(new Error("send failed"));
+            }),
+        });
+
+        // Act: 1 回だけ失敗させる
+        const appData = createAppDataPacket(1, 0xb3fe319e);
+        client.callHandleAuth(appData);
+        await flushAsync();
+
+        // Assert: 閾値 (2) 未満なのでセッションはリセットされない
+        expect((client as any).authResponseFailureCount).toBe(1);
+        expect(client.authenticationState).toBe("authenticated");
+        expect(client.getSessionToken()).toBe(0xb3fe319e);
+    });
+
+    it("2回連続失敗するとresetAuthSessionが呼ばれauthStateがnoneになる", async () => {
+        // Arrange
+        const client = makeClient();
+        client.setBroadcastSocket({
+            send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: (err: Error | null) => void) => {
+                cb(new Error("send failed"));
+            }),
+        });
+
+        // Act: 2 回連続失敗させる
+        const appData = createAppDataPacket(1, 0xb3fe319e);
+        client.callHandleAuth(appData);
+        await flushAsync();
+        // 1 回目失敗後は authenticated 維持
+        expect(client.authenticationState).toBe("authenticated");
+        expect((client as any).authResponseFailureCount).toBe(1);
+
+        client.callHandleAuth(appData);
+        await flushAsync();
+
+        // Assert: 閾値到達で resetAuthSession が呼ばれセッションリセット
+        expect(client.authenticationState).toBe("none");
+        expect(client.getSessionToken()).toBeNull();
+        // resetAuthSession はカウンタも 0 に戻す
+        expect((client as any).authResponseFailureCount).toBe(0);
+    });
+
+    it("authenticated状態で異なるtokenのcmd=1を受信するとlogger.warnが呼ばれる", async () => {
+        // Arrange
+        const logger = {
+            error: vi.fn(),
+            warn: vi.fn(),
+            debug: vi.fn(),
+        };
+        const client = makeClient(logger);
+        client.setBroadcastSocket({
+            send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: (err: Error | null) => void) => {
+                cb(null);
+            }),
+        });
+
+        // Act: 既存 token (0xB3FE319E) と異なる token で cmd=1 を受信
+        const appData = createAppDataPacket(1, 0xcafebabe);
+        client.callHandleAuth(appData);
+        await flushAsync();
+
+        // Assert: token 変化を warn で記録している
+        expect(logger.warn).toHaveBeenCalledTimes(1);
+        const warnMessage = logger.warn.mock.calls[0][0] as string;
+        expect(warnMessage).toContain("Auth token changed unexpectedly");
+        expect(warnMessage).toContain("0xb3fe319e");
+        expect(warnMessage).toContain("0xcafebabe");
+        // 実際に sessionToken も更新されている
+        expect(client.getSessionToken()).toBe(0xcafebabe);
     });
 });
