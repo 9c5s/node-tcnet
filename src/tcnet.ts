@@ -1140,8 +1140,9 @@ export class TCNetClient extends EventEmitter {
             }
         }, AUTH_RESPONSE_TIMEOUT);
         this.sendAuthSequence().catch((err) => {
-            // token が同じままなら現世代の失敗なのでリセット、既に別世代なら無害化
-            if (this.sessionToken === tokenForThisAttempt) {
+            // 現世代 (pending + 同一token) の失敗のみリセットする
+            // state=authenticated 遷移後の遅延 reject でセッションを破壊しないよう pending チェックを入れる
+            if (this._authState === "pending" && this.sessionToken === tokenForThisAttempt) {
                 this.resetAuthSession();
             }
             const error = err instanceof Error ? err : new Error(String(err));
