@@ -1020,15 +1020,12 @@ export class TCNetClient extends EventEmitter {
     /**
      * 認証シーケンス (cmd=0 hello → 50ms wait → cmd=2 auth) を送信する
      *
-     * expectedToken は呼び出し時点の sessionToken をキャプチャしたもの。
-     * 非同期境界ごとに `this.sessionToken !== expectedToken` を確認し、
-     * 旧世代になっていたら resetAuthSession を呼ばずに黙って抜ける
+     * 呼び出し時点の sessionToken を内部で expectedToken としてキャプチャし、
+     * 各非同期境界で `this.sessionToken !== expectedToken` を確認する。
+     * 旧世代になっていたら resetAuthSession を呼ばずに return する
      * (新世代の state を壊さないため)。
-     * @param expectedToken - 呼び出し時点で期待するセッショントークン
      */
-    protected async sendAuthSequence(expectedToken: number): Promise<void> {
-        if (this.sessionToken !== expectedToken) return;
-
+    protected async sendAuthSequence(): Promise<void> {
         if (!this.server || !this.broadcastSocket || this.sessionToken === null) {
             this.resetAuthSession();
             return;
@@ -1039,6 +1036,8 @@ export class TCNetClient extends EventEmitter {
             this.resetAuthSession();
             return;
         }
+
+        const expectedToken = this.sessionToken;
 
         // cmd=0 (hello) をブロードキャストアドレス:60000に送信
         const hello = this.createAppDataPacket(0, 0, Buffer.alloc(12));
@@ -1140,7 +1139,7 @@ export class TCNetClient extends EventEmitter {
                 this.resetAuthSession();
             }
         }, AUTH_RESPONSE_TIMEOUT);
-        this.sendAuthSequence(tokenForThisAttempt).catch((err) => {
+        this.sendAuthSequence().catch((err) => {
             // token が同じままなら現世代の失敗なのでリセット、既に別世代なら無害化
             if (this.sessionToken === tokenForThisAttempt) {
                 this.resetAuthSession();

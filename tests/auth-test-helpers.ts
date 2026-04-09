@@ -144,8 +144,8 @@ export class AuthSequenceTestClient extends TCNetClient {
         this._selectedAdapter = adapter;
     }
 
-    public callSendAuthSequence(expectedToken?: number): Promise<void> {
-        return this.sendAuthSequence(expectedToken ?? this.sessionToken ?? 0);
+    public callSendAuthSequence(): Promise<void> {
+        return this.sendAuthSequence();
     }
 
     public callSendAuthCommandOnly(): Promise<boolean> {
@@ -192,7 +192,7 @@ export class AuthSequenceTestClient extends TCNetClient {
      * 既存テストの sendAuthSequence 差し替えパターン向けヘルパー
      * @param mock - 差し替え先のモック関数
      */
-    public setSendAuthSequenceMock(mock: (expectedToken: number) => Promise<void>): void {
+    public setSendAuthSequenceMock(mock: () => Promise<void>): void {
         this.sendAuthSequence = mock;
     }
 }
