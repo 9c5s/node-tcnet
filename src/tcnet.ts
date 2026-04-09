@@ -10,7 +10,6 @@ import { generateAuthPayload, type AuthState } from "./auth";
 const TCNET_BROADCAST_PORT = 60000;
 const TCNET_TIMESTAMP_PORT = 60001;
 const AUTH_RESPONSE_TIMEOUT = 5000;
-const AUTH_REFRESH_TIMEOUT = 100_000;
 
 type STORED_REQUEST = {
     resolve: (value: nw.TCNetDataPacket | PromiseLike<nw.TCNetDataPacket>) => void;
@@ -31,6 +30,7 @@ const MULTI_PACKET_TYPES: Set<number> = new Set([
  */
 export type TCNetLogger = {
     error: (error: Error) => void;
+    warn: (message: string) => void;
     debug: (message: string) => void;
 };
 
@@ -55,15 +55,6 @@ export class TCNetConfiguration {
     switchRetryInterval = 1000;
     /** XTEA暗号文 (16桁hex文字列)。設定時はTCNASDP認証を実行する。環境変数 TCNET_XTEA_CIPHERTEXT で上書き可能 */
     xteaCiphertext?: string = process.env.TCNET_XTEA_CIPHERTEXT;
-    /** 認証の自動リフレッシュを有効にするかどうか。xteaCiphertext設定時、初回認証成功後にタイマーが起動する */
-    autoReauth = true;
-    /**
-     * 自動リフレッシュの実行間隔 (ミリ秒)
-     * Bridgeの認証タイムアウト(約100秒)より短く設定する必要がある。
-     * 10000ms未満に設定された場合は自動リフレッシュが有効にならない。
-     * デフォルト60000ms(60秒)はv3a実機テストで240秒間のLICENSE維持が実証された値である
-     */
-    reauthInterval = 60_000;
 }
 
 /**
@@ -80,11 +71,11 @@ function closeSocket(socket: Socket): Promise<void> {
  * @category Client
  */
 export class TCNetClient extends EventEmitter {
-    private config: TCNetConfiguration;
-    private broadcastSocket: Socket | null = null;
+    protected config: TCNetConfiguration;
+    protected broadcastSocket: Socket | null = null;
     private unicastSocket: Socket | null = null;
     private timestampSocket: Socket | null = null;
-    private server: RemoteInfo | null = null;
+    protected server: RemoteInfo | null = null;
     private seq = 0;
     private uptime = 0;
     private connected = false;
@@ -95,17 +86,24 @@ export class TCNetClient extends EventEmitter {
     private broadcastSockets: Map<string, Socket> = new Map();
     private timestampSockets: Map<string, Socket> = new Map();
     private adapterMap: Map<string, NetworkAdapterInfo> = new Map();
-    private _selectedAdapter: NetworkAdapterInfo | null = null;
+    protected _selectedAdapter: NetworkAdapterInfo | null = null;
     private switching = false;
     private connectTimeoutId: NodeJS.Timeout | null = null;
     private detectionTimeoutId: NodeJS.Timeout | null = null;
     private detectingAdapter = false;
-    private _authState: AuthState = "none";
-    private sessionToken: number | null = null;
+    protected _authState: AuthState = "none";
+    protected sessionToken: number | null = null;
     private authTimeoutId: NodeJS.Timeout | null = null;
-    private bridgeIsWindows: boolean | null = null;
-    private reauthIntervalId: NodeJS.Timeout | null = null;
-    private reauthPromise: Promise<void> | null = null;
+    protected bridgeIsWindows: boolean | null = null;
+    // detectBridgeIsWindows の in-flight Promise を保持し並行呼び出しを single-flight 化する
+    // bridgeOsDetectionTargetIp は現在 in-flight な Promise が対象としている Bridge IP であり、
+    // Bridge 切り替え後の呼び出しで古い Promise を共有しないためのキーとして機能する
+    private bridgeOsDetectionPromise: Promise<boolean> | null = null;
+    private bridgeOsDetectionTargetIp: string | null = null;
+    // authenticated 状態での sendAuthCommandOnly 連続失敗回数を記録する
+    protected authResponseFailureCount: number = 0;
+    // 連続失敗がこの閾値に到達したら resetAuthSession で再認証を促す
+    private static readonly AUTH_RESPONSE_FAILURE_THRESHOLD = 2;
 
     /**
      * TCNetClientを初期化する
@@ -251,12 +249,6 @@ export class TCNetClient extends EventEmitter {
         this._selectedAdapter = null;
         this.server = null;
         this.detectingAdapter = false;
-        this.stopAutoReauth();
-        // reauthPromise進行中の場合、executeReauthのリスナーが
-        // authFailedを捕捉してPromiseをrejectできるようにする
-        if (this.reauthPromise) {
-            this.emit("authFailed");
-        }
         this.resetAuthSession();
         if (this.connectTimeoutId) {
             clearTimeout(this.connectTimeoutId);
@@ -829,9 +821,15 @@ export class TCNetClient extends EventEmitter {
      * WindowsのデフォルトTTLは128、macOS/LinuxのデフォルトTTLは64であるため、
      * 同一LAN (0-1ホップ) ではこの閾値で正確に判定できる。
      * 結果はインスタンス変数にキャッシュし、セッション中1回だけ検出する。
+     *
+     * 連続 cmd=1 flood 等で並行呼び出しが起きた場合は、in-flight Promise を
+     * 共有する single-flight パターンにより ping の重複起動を防ぐ。ただし
+     * Bridge 切り替え (`server.address` 変化) 後は古い Promise を共有せず、
+     * 新しい Bridge 向けに別の ping を発行する。
      * @returns Windowsならtrue、それ以外ならfalse
      */
-    private async detectBridgeIsWindows(): Promise<boolean> {
+    protected async detectBridgeIsWindows(): Promise<boolean> {
+        // キャッシュヒットは in-flight 判定より優先する
         if (this.bridgeIsWindows !== null) return this.bridgeIsWindows;
 
         const bridgeIp = this.server?.address;
@@ -840,6 +838,36 @@ export class TCNetClient extends EventEmitter {
             return false;
         }
 
+        // in-flight Promise は同一 Bridge IP の呼び出しに対してのみ共有する
+        // (Bridge 切り替え後に古い Bridge 向けの判定を新 Bridge に渡さないため)
+        if (this.bridgeOsDetectionPromise && this.bridgeOsDetectionTargetIp === bridgeIp) {
+            return this.bridgeOsDetectionPromise;
+        }
+
+        this.bridgeOsDetectionTargetIp = bridgeIp;
+        this.bridgeOsDetectionPromise = this.performBridgeOsDetection(bridgeIp).finally(() => {
+            // 自分の起動した Promise が in-flight のまま残っている場合のみクリアする
+            // (Bridge 切り替えで別の Promise に既に上書きされている場合は触らない)
+            if (this.bridgeOsDetectionTargetIp === bridgeIp) {
+                this.bridgeOsDetectionPromise = null;
+                this.bridgeOsDetectionTargetIp = null;
+            }
+        });
+        return this.bridgeOsDetectionPromise;
+    }
+
+    /**
+     * detectBridgeIsWindows の本体ロジック。
+     * single-flight 制御とは分離してあるため、直接呼び出すべきではない。
+     *
+     * TOCTOU ガード: 呼び出し元から渡された `bridgeIp` をキャッシュ書き込み直前に
+     * 現在の `server.address` と比較する。ping 実行中に Bridge 切り替え等で
+     * `server.address` が変わった場合、古い Bridge 向けの判定で
+     * `bridgeIsWindows` キャッシュを上書きしない。
+     * @param bridgeIp - 検出開始時にキャプチャした Bridge IP
+     * @returns Windowsならtrue、それ以外ならfalse
+     */
+    private async performBridgeOsDetection(bridgeIp: string): Promise<boolean> {
         // IPv4フォーマットバリデーション (execFileに渡す前の防御)
         // 不正IPは確定的でないためキャッシュしない
         if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(bridgeIp)) {
@@ -848,9 +876,17 @@ export class TCNetClient extends EventEmitter {
 
         const clientIp = this.getClientIp();
         if (clientIp && bridgeIp === clientIp) {
-            this.bridgeIsWindows = platform() === "win32";
-            this.log?.debug(`Bridge OS detected (local): ${this.bridgeIsWindows ? "Windows" : "non-Windows"}`);
-            return this.bridgeIsWindows;
+            const result = platform() === "win32";
+            // 検出開始時の bridgeIp と現在値が一致する場合のみキャッシュを更新する
+            if (this.server?.address === bridgeIp) {
+                this.bridgeIsWindows = result;
+                this.log?.debug(`Bridge OS detected (local): ${result ? "Windows" : "non-Windows"}`);
+            } else {
+                this.log?.debug(
+                    `Bridge OS detection: server changed during detection (${bridgeIp} -> ${this.server?.address ?? "null"}), discarding stale result`,
+                );
+            }
+            return result;
         }
 
         try {
@@ -865,8 +901,17 @@ export class TCNetClient extends EventEmitter {
             const match = output.match(/ttl[=:](\d+)/i);
             if (match) {
                 const ttl = Number.parseInt(match[1], 10);
-                this.bridgeIsWindows = ttl > 64;
-                this.log?.debug(`Bridge OS detected (TTL=${ttl}): ${this.bridgeIsWindows ? "Windows" : "non-Windows"}`);
+                const result = ttl > 64;
+                // ping 中に server.address が変わった場合は古い判定を書き込まない
+                if (this.server?.address === bridgeIp) {
+                    this.bridgeIsWindows = result;
+                    this.log?.debug(`Bridge OS detected (TTL=${ttl}): ${result ? "Windows" : "non-Windows"}`);
+                } else {
+                    this.log?.debug(
+                        `Bridge OS detection: server changed during ping (${bridgeIp} -> ${this.server?.address ?? "null"}), discarding stale result`,
+                    );
+                }
+                return result;
             } else {
                 // TTL未検出は確定的でないためキャッシュせず、次回再検出を許可する
                 this.log?.debug("Bridge OS detection: TTL not found in ping output, assuming non-Windows");
@@ -878,8 +923,6 @@ export class TCNetClient extends EventEmitter {
             this.log?.debug(`Bridge OS detection: ping failed (${msg}), assuming non-Windows`);
             return false;
         }
-
-        return this.bridgeIsWindows;
     }
 
     /**
@@ -904,6 +947,15 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
+     * 認証トークンを "0xXXXXXXXX" 形式の16進文字列に整形する
+     * @param token - トークン値
+     * @returns 16進文字列表現
+     */
+    private formatToken(token: number): string {
+        return `0x${token.toString(16).padStart(8, "0")}`;
+    }
+
+    /**
      * xteaCiphertextが有効な16桁hex文字列であるか検証する
      * @returns 有効な場合true
      */
@@ -912,116 +964,24 @@ export class TCNetClient extends EventEmitter {
         return !!ct && /^[0-9a-f]{16}$/i.test(ct);
     }
 
-    /** 自動再認証タイマーを起動する */
-    private startAutoReauth(): void {
-        if (!this.connected || this._authState !== "authenticated") return;
-        if (!this.config.autoReauth || this.config.reauthInterval < 10_000) return;
-        if (this.reauthIntervalId) return;
-        this.reauthIntervalId = setInterval(() => {
-            this.performReauth().catch((err) => {
-                const error = err instanceof Error ? err : new Error(String(err));
-                this.log?.error(error);
-            });
-        }, this.config.reauthInterval);
-        this.reauthIntervalId.unref();
-    }
-
-    /** 自動再認証タイマーを停止する */
-    private stopAutoReauth(): void {
-        if (this.reauthIntervalId) {
-            clearInterval(this.reauthIntervalId);
-            this.reauthIntervalId = null;
-        }
-    }
-
     /**
-     * 再認証を実行する (内部用)
-     * authenticated状態でのみ動作する。single-flight保証付き。
-     * @param timeoutMs - 認証タイムアウト (ms)
+     * 認証セッションを初期状態にリセットする
+     *
+     * _authState/sessionToken/authResponseFailureCount/authTimeoutId を
+     * 初期値に戻し、Bridge からの次の cmd=1 で再度初回認証フローに入れる
+     * 状態へ戻す。bridgeIsWindows は既定でリセットされるが、Bridge の
+     * 物理端末が変わらないと判断できる場合 (連続送信失敗の閾値到達等) は
+     * preserveBridgeOs=true で保持することで無駄な再 ping を避けられる。
+     * @param preserveBridgeOs - true の場合は bridgeIsWindows キャッシュを保持する
      */
-    private async performReauth(timeoutMs: number = AUTH_REFRESH_TIMEOUT): Promise<void> {
-        if (this._authState !== "authenticated" || this.reauthPromise) return;
-        this.reauthPromise = this.executeReauth(timeoutMs);
-        try {
-            await this.reauthPromise;
-        } finally {
-            this.reauthPromise = null;
-        }
-    }
-
-    /**
-     * 再認証の実行本体
-     * 認証セッションのうち必要な状態(sessionToken, authTimeoutId)のみリセットし、
-     * Bridgeからのtoken再送とauthenticated/authFailedイベントを待って完了判定する。
-     * resetAuthSessionは呼ばない(bridgeIsWindowsキャッシュを保持するため)。
-     * sendAuthSequenceも呼ばない(sessionToken=nullガードでresetAuthSessionが
-     * 再実行されrefreshing状態が失われるため)。
-     * @param timeoutMs - 認証タイムアウト (ms)
-     */
-    private async executeReauth(timeoutMs: number = AUTH_REFRESH_TIMEOUT): Promise<void> {
-        let cleanup: (() => void) | undefined;
-        try {
-            // resetAuthSessionの代わりに必要な状態のみ個別リセットする
-            // bridgeIsWindowsキャッシュを保持して毎回のOS判定pingを回避する
-            // (Bridge OSはセッション中に変わらない)
-            this.sessionToken = null;
-            if (this.authTimeoutId) {
-                clearTimeout(this.authTimeoutId);
-                this.authTimeoutId = null;
-            }
-            // handleAuthPacketはcmd=1受理条件に"refreshing"を含むため、
-            // この状態でもBridgeからのtoken受信を正常に処理できる
-            this._authState = "refreshing";
-
-            // リスナーを登録してBridgeからのtoken再発行を待つ
-            // sendAuthSequenceは呼ばない: sessionToken=nullのガードでresetAuthSessionが
-            // 再実行されrefreshing状態が失われるため。Bridgeは定期的なOptInブロードキャスト
-            // 経由でtoken(AppData cmd=1)を再送するので、明示的なhello送信は不要である
-            const authPromise = new Promise<void>((resolve, reject) => {
-                const onAuth = (): void => {
-                    doCleanup();
-                    resolve();
-                };
-                const onFail = (): void => {
-                    doCleanup();
-                    reject(new Error("Reauth failed"));
-                };
-                const timer = setTimeout(() => {
-                    doCleanup();
-                    reject(new Error("Reauth timeout"));
-                }, timeoutMs);
-                timer.unref();
-                const doCleanup = (): void => {
-                    this.removeListener("authenticated", onAuth);
-                    this.removeListener("authFailed", onFail);
-                    clearTimeout(timer);
-                };
-                cleanup = doCleanup;
-                this.once("authenticated", onAuth);
-                this.once("authFailed", onFail);
-            });
-
-            await authPromise;
-            this.emit("reauthenticated");
-        } catch (err) {
-            cleanup?.();
-            // タイムアウト等で失敗した場合、"refreshing"のままだと
-            // ユーザーが永遠に再認証中と誤認する。"failed"に戻すことで
-            // handleAuthPacketがBridgeからのtoken再送を受理して自然回復できる
-            if (this._authState === "refreshing") {
-                this.sessionToken = null;
-                this._authState = "failed";
-            }
-            this.emit("reauthFailed", err instanceof Error ? err : new Error(String(err)));
-            throw err;
-        }
-    }
-
-    /** 認証セッションをリセットする (再試行可能な状態に戻す) */
-    private resetAuthSession(): void {
+    protected resetAuthSession(preserveBridgeOs = false): void {
         this._authState = "none";
         this.sessionToken = null;
-        this.bridgeIsWindows = null;
+        if (!preserveBridgeOs) {
+            this.bridgeIsWindows = null;
+        }
+        // セッションそのものをリセットするため、連続失敗カウンタも 0 に戻す
+        this.authResponseFailureCount = 0;
         if (this.authTimeoutId) {
             clearTimeout(this.authTimeoutId);
             this.authTimeoutId = null;
@@ -1029,11 +989,40 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
+     * cmd=2 (auth) パケットの payload を生成する
+     *
+     * sendAuthSequence と sendAuthCommandOnly の共通ロジックを抽出したものである。
+     * ガード失敗時は null を返し、呼び出し元が失敗時の扱い (リセット or 無視) を決める。
+     * @returns 送信用の payload Buffer、または null (ガード失敗時)
+     */
+    protected async prepareAuthPayload(): Promise<Buffer | null> {
+        if (!this.server || !this.broadcastSocket || this.sessionToken === null) return null;
+        if (!this.hasValidXteaCiphertext()) return null;
+
+        const clientIp = this.getClientIp();
+        if (!clientIp) return null;
+
+        const ct = this.config.xteaCiphertext!;
+        const ciphertext = Buffer.from(ct, "hex");
+        const tokenBeforePing = this.sessionToken;
+        // Windows BridgeはXTEA暗号文をバイトリバースして読み取るため、事前にリバースして送信する
+        // 初回呼び出し時のみpingが発生し最大3秒かかる (AUTH_RESPONSE_TIMEOUT=5秒内に収まる想定)
+        if (await this.detectBridgeIsWindows()) {
+            ciphertext.reverse();
+        }
+
+        // 非同期待機中に状態が変わった場合は中止する
+        if (!this.server || !this.broadcastSocket || this.sessionToken !== tokenBeforePing) return null;
+
+        return generateAuthPayload(this.sessionToken, clientIp, ciphertext);
+    }
+
+    /**
      * 認証シーケンスを送信する
      * cmd=0 (hello) の後に50ms待機してcmd=2 (認証) を送信する。
      * 実機テストの結果、AppDataはbroadcastSocket(60000)経由でブロードキャストアドレスに送信する。
      */
-    private async sendAuthSequence(): Promise<void> {
+    protected async sendAuthSequence(): Promise<void> {
         if (!this.server || !this.broadcastSocket || this.sessionToken === null) {
             this.resetAuthSession();
             return;
@@ -1044,7 +1033,6 @@ export class TCNetClient extends EventEmitter {
             this.resetAuthSession();
             return;
         }
-        const ct = this.config.xteaCiphertext!;
 
         // cmd=0 (hello) をブロードキャストアドレス:60000に送信
         const hello = this.createAppDataPacket(0, 0, Buffer.alloc(12));
@@ -1053,34 +1041,44 @@ export class TCNetClient extends EventEmitter {
         // 50ms待機してcmd=2 (認証) を送信
         await new Promise((r) => setTimeout(r, 50));
 
-        if (!this.server || !this.broadcastSocket) {
+        const payload = await this.prepareAuthPayload();
+        if (!payload) {
             this.resetAuthSession();
             return;
         }
 
-        const clientIp = this.getClientIp();
-        if (!clientIp) {
-            this.resetAuthSession();
-            return;
-        }
+        // prepareAuthPayload が non-null を返した時点で sessionToken/broadcastSocket は非 null である
+        const auth = this.createAppDataPacket(2, this.sessionToken!, payload);
+        await this.sendPacket(auth, this.broadcastSocket!, TCNET_BROADCAST_PORT, this.config.broadcastAddress);
+    }
 
-        const ciphertext = Buffer.from(ct, "hex");
-        const tokenBeforePing = this.sessionToken;
-        // Windows BridgeはXTEA暗号文をバイトリバースして読み取るため、事前にリバースして送信する
-        // 初回呼び出し時のみpingが発生し最大3秒かかる (AUTH_RESPONSE_TIMEOUT=5秒内に収まる想定)
-        if (await this.detectBridgeIsWindows()) {
-            ciphertext.reverse();
-        }
+    /**
+     * Bridge からの cmd=1 (再認証要求) に対して cmd=2 (auth) のみを送り返す
+     *
+     * ShowKontrol の実測挙動 (sk-ext-capture.pcapng) をエミュレートする:
+     * Bridge が cmd=1 を送ってきたら SK は 1-10ms 以内に cmd=2 だけを返す。
+     * 223秒間のキャプチャで 8 回の再認証サイクルが観測され、全て同一tokenで
+     * 完結している (初回ハンドシェイクのみ cmd=0 hello を伴う)。
+     *
+     * sendAuthSequence との違い:
+     * - cmd=0 (hello) を送らない (継続セッションでは不要)
+     * - 50ms 待機しない
+     * - 失敗時に resetAuthSession を呼ばない (authenticated 状態を維持)
+     * - state 遷移を伴わない (Error 応答は handleAuthPacket の "pending" gate で
+     *   弾かれるが、ここでは authenticated 状態での "continuation" として扱うため
+     *   状態変更は不要)
+     * @returns 実際に cmd=2 を送信した場合は true、ガード失敗で送信しなかった場合は false
+     */
+    protected async sendAuthCommandOnly(): Promise<boolean> {
+        const payload = await this.prepareAuthPayload();
+        // prepareAuthPayload が null を返した場合は送信していない旨を呼び出し元に伝える
+        // (silent に成功扱いされると連続失敗カウンタのリセット判定が誤る)
+        if (!payload) return false;
 
-        // detectBridgeIsWindowsのawait中に状態が変わった場合のガード
-        if (!this.server || !this.broadcastSocket || this.sessionToken !== tokenBeforePing) {
-            this.resetAuthSession();
-            return;
-        }
-
-        const payload = generateAuthPayload(this.sessionToken, clientIp, ciphertext);
-        const auth = this.createAppDataPacket(2, this.sessionToken, payload);
-        await this.sendPacket(auth, this.broadcastSocket, TCNET_BROADCAST_PORT, this.config.broadcastAddress);
+        // prepareAuthPayload が non-null を返した時点で sessionToken/broadcastSocket は非 null である
+        const auth = this.createAppDataPacket(2, this.sessionToken!, payload);
+        await this.sendPacket(auth, this.broadcastSocket!, TCNET_BROADCAST_PORT, this.config.broadcastAddress);
+        return true;
     }
 
     /**
@@ -1089,80 +1087,119 @@ export class TCNetClient extends EventEmitter {
      * @param packet - 受信したパケット
      * @param rinfo - 送信元情報
      */
-    private handleAuthPacket(packet: nw.TCNetPacket | null, rinfo: RemoteInfo): void {
+    protected handleAuthPacket(packet: nw.TCNetPacket | null, rinfo: RemoteInfo): void {
         if (!packet || !this.hasValidXteaCiphertext()) return;
         if (!this.server || rinfo.address !== this.server.address) return;
 
-        if (packet instanceof nw.TCNetApplicationDataPacket) {
-            if (
-                packet.cmd === 1 &&
-                this.sessionToken === null &&
-                (this._authState === "none" || this._authState === "failed" || this._authState === "refreshing")
-            ) {
-                this.sessionToken = packet.token;
-                this._authState = "pending";
-                this.log?.debug(`Auth token received: 0x${packet.token.toString(16).padStart(8, "0")}`);
-                this.authTimeoutId = setTimeout(() => {
-                    if (this._authState === "pending") {
-                        this.log?.debug("TCNASDP authentication timed out");
-                        this.resetAuthSession();
-                    }
-                }, AUTH_RESPONSE_TIMEOUT);
-                this.sendAuthSequence().catch((err) => {
-                    this.resetAuthSession();
-                    const error = err instanceof Error ? err : new Error(String(err));
-                    this.log?.error(error);
-                });
-            }
-        } else if (packet instanceof nw.TCNetErrorPacket) {
-            if (this._authState !== "pending" || packet.errorData.length < 3) return;
+        if (packet instanceof nw.TCNetErrorPacket) {
+            this.handleAuthErrorPacket(packet);
+            return;
+        }
 
-            const b0 = packet.errorData[0];
-            const b1 = packet.errorData[1];
-            const b2 = packet.errorData[2];
+        if (!(packet instanceof nw.TCNetApplicationDataPacket) || packet.cmd !== 1) return;
 
-            if (b0 === 0xff && b1 === 0xff && b2 === 0xff) {
-                if (this.authTimeoutId) {
-                    clearTimeout(this.authTimeoutId);
-                    this.authTimeoutId = null;
-                }
-                this._authState = "authenticated";
-                this.log?.debug("TCNASDP authentication succeeded");
-                this.emit("authenticated");
-                this.startAutoReauth();
-            } else if (b0 === 0xff && b1 === 0xff && b2 === 0x0d) {
-                if (this.authTimeoutId) {
-                    clearTimeout(this.authTimeoutId);
-                    this.authTimeoutId = null;
-                }
-                this.sessionToken = null;
-                this._authState = "failed";
-                this.log?.debug("TCNASDP authentication failed");
-                this.emit("authFailed");
-            }
+        // 初回認証: sessionToken が未取得かつ未認証・失敗状態である
+        if (this.sessionToken === null && (this._authState === "none" || this._authState === "failed")) {
+            this.handleInitialAuthRequest(packet);
+            return;
+        }
+
+        // 継続認証: authenticated 状態で Bridge からの再認証要求が来た場合
+        if (this._authState === "authenticated" && this.sessionToken !== null) {
+            this.handleReauthRequest(packet);
         }
     }
 
     /**
-     * 認証を手動でリフレッシュする
-     *
-     * 自動リフレッシュが無効化されている場合、または任意のタイミングで認証を
-     * 更新したい場合に呼び出す。既にリフレッシュ中の場合は進行中のPromiseを返す。
-     * @param timeoutMs - Bridgeからの応答待ちタイムアウト (デフォルト100000ms)
-     * @returns 認証完了時にresolveする
-     * @throws {Error} xteaCiphertext未設定、未認証、接続未確立の場合
+     * 初回認証: cmd=1 でトークンを受領し、認証シーケンスを送信する
+     * @param packet - 受信した AppData cmd=1 パケット
      */
-    public async reauth(timeoutMs: number = AUTH_REFRESH_TIMEOUT): Promise<void> {
-        if (!this.hasValidXteaCiphertext()) {
-            throw new Error("xteaCiphertext not configured");
+    private handleInitialAuthRequest(packet: nw.TCNetApplicationDataPacket): void {
+        this.sessionToken = packet.token;
+        this._authState = "pending";
+        this.log?.debug(`Auth token received: ${this.formatToken(packet.token)}`);
+        this.authTimeoutId = setTimeout(() => {
+            if (this._authState === "pending") {
+                this.log?.debug("TCNASDP authentication timed out");
+                this.resetAuthSession();
+            }
+        }, AUTH_RESPONSE_TIMEOUT);
+        this.sendAuthSequence().catch((err) => {
+            this.resetAuthSession();
+            const error = err instanceof Error ? err : new Error(String(err));
+            this.log?.error(error);
+        });
+    }
+
+    /**
+     * 継続認証: authenticated 状態で cmd=1 を受信したときに cmd=2 で即応答する
+     *
+     * Bridge は client の応答が来ない場合 cmd=1 を flood し始め、最終的に
+     * license timeout (~100秒) で失効する。毎回応答することで Bridge は
+     * 満足し、次のサイクル (Bridge のタイミング次第で12-90秒) まで沈黙する。
+     * @param packet - 受信した AppData cmd=1 パケット
+     */
+    private handleReauthRequest(packet: nw.TCNetApplicationDataPacket): void {
+        if (packet.token !== this.sessionToken) {
+            // SK の実測では常に同一 token のため、変化は想定外の状況である
+            this.log?.warn(
+                `Auth token changed unexpectedly: ${this.formatToken(this.sessionToken!)} -> ${this.formatToken(packet.token)}`,
+            );
+            this.sessionToken = packet.token;
         }
-        if (this.reauthPromise) {
-            return this.reauthPromise;
+        this.log?.debug("cmd=1 in authenticated state, responding with cmd=2");
+        this.sendAuthCommandOnly()
+            .then((sent) => {
+                // 実際に送信された場合のみ連続失敗カウンタを 0 に戻す
+                // (prepareAuthPayload がガード失敗で false を返した場合はノーオペ)
+                if (sent) {
+                    this.authResponseFailureCount = 0;
+                }
+            })
+            .catch((err) => {
+                const error = err instanceof Error ? err : new Error(String(err));
+                this.log?.error(error);
+                this.authResponseFailureCount++;
+                if (this.authResponseFailureCount >= TCNetClient.AUTH_RESPONSE_FAILURE_THRESHOLD) {
+                    // 閾値到達時はセッションをリセットして再認証フローへ戻す
+                    // bridgeIsWindows は Bridge 物理端末の OS 情報なので保持し無駄な再 ping を避ける
+                    this.log?.warn(
+                        `Auth response failed ${this.authResponseFailureCount} times consecutively, resetting session`,
+                    );
+                    this.resetAuthSession(true);
+                }
+            });
+    }
+
+    /**
+     * Error パケットで認証成否を判定する
+     * @param packet - 受信した Error パケット
+     */
+    private handleAuthErrorPacket(packet: nw.TCNetErrorPacket): void {
+        if (this._authState !== "pending" || packet.errorData.length < 3) return;
+
+        const b0 = packet.errorData[0];
+        const b1 = packet.errorData[1];
+        const b2 = packet.errorData[2];
+
+        if (b0 === 0xff && b1 === 0xff && b2 === 0xff) {
+            if (this.authTimeoutId) {
+                clearTimeout(this.authTimeoutId);
+                this.authTimeoutId = null;
+            }
+            this._authState = "authenticated";
+            this.log?.debug("TCNASDP authentication succeeded");
+            this.emit("authenticated");
+        } else if (b0 === 0xff && b1 === 0xff && b2 === 0x0d) {
+            if (this.authTimeoutId) {
+                clearTimeout(this.authTimeoutId);
+                this.authTimeoutId = null;
+            }
+            this.sessionToken = null;
+            this._authState = "failed";
+            this.log?.debug("TCNASDP authentication failed");
+            this.emit("authFailed");
         }
-        if (this._authState !== "authenticated") {
-            throw new Error("Cannot reauth: not authenticated");
-        }
-        return this.performReauth(timeoutMs);
     }
 
     /**
