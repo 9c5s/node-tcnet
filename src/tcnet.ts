@@ -1018,11 +1018,17 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * 認証シーケンスを送信する
-     * cmd=0 (hello) の後に50ms待機してcmd=2 (認証) を送信する。
-     * 実機テストの結果、AppDataはbroadcastSocket(60000)経由でブロードキャストアドレスに送信する。
+     * 認証シーケンス (cmd=0 hello → 50ms wait → cmd=2 auth) を送信する
+     *
+     * expectedToken は呼び出し時点の sessionToken をキャプチャしたもの。
+     * 非同期境界ごとに `this.sessionToken !== expectedToken` を確認し、
+     * 旧世代になっていたら resetAuthSession を呼ばずに黙って抜ける
+     * (新世代の state を壊さないため)。
+     * @param expectedToken - 呼び出し時点で期待するセッショントークン
      */
-    protected async sendAuthSequence(): Promise<void> {
+    protected async sendAuthSequence(expectedToken: number): Promise<void> {
+        if (this.sessionToken !== expectedToken) return;
+
         if (!this.server || !this.broadcastSocket || this.sessionToken === null) {
             this.resetAuthSession();
             return;
@@ -1037,11 +1043,14 @@ export class TCNetClient extends EventEmitter {
         // cmd=0 (hello) をブロードキャストアドレス:60000に送信
         const hello = this.createAppDataPacket(0, 0, Buffer.alloc(12));
         await this.sendPacket(hello, this.broadcastSocket, TCNET_BROADCAST_PORT, this.config.broadcastAddress);
+        if (this.sessionToken !== expectedToken) return;
 
         // 50ms待機してcmd=2 (認証) を送信
         await new Promise((r) => setTimeout(r, 50));
+        if (this.sessionToken !== expectedToken) return;
 
         const payload = await this.prepareAuthPayload();
+        if (this.sessionToken !== expectedToken) return;
         if (!payload) {
             this.resetAuthSession();
             return;
@@ -1121,17 +1130,21 @@ export class TCNetClient extends EventEmitter {
      * @param packet - 受信した AppData cmd=1 パケット
      */
     private handleInitialAuthRequest(packet: nw.TCNetApplicationDataPacket): void {
-        this.sessionToken = packet.token;
+        const tokenForThisAttempt = packet.token;
+        this.sessionToken = tokenForThisAttempt;
         this._authState = "pending";
-        this.log?.debug(`Auth token received: ${this.formatToken(packet.token)}`);
+        this.log?.debug(`Auth token received: ${this.formatToken(tokenForThisAttempt)}`);
         this.authTimeoutId = setTimeout(() => {
             if (this._authState === "pending") {
                 this.log?.debug("TCNASDP authentication timed out");
                 this.resetAuthSession();
             }
         }, AUTH_RESPONSE_TIMEOUT);
-        this.sendAuthSequence().catch((err) => {
-            this.resetAuthSession();
+        this.sendAuthSequence(tokenForThisAttempt).catch((err) => {
+            // token が同じままなら現世代の失敗なのでリセット、既に別世代なら無害化
+            if (this.sessionToken === tokenForThisAttempt) {
+                this.resetAuthSession();
+            }
             const error = err instanceof Error ? err : new Error(String(err));
             this.log?.error(error);
         });
@@ -1154,10 +1167,16 @@ export class TCNetClient extends EventEmitter {
             return;
         }
         this.log?.debug("cmd=1 in pending state, resending cmd=2");
-        this.sendAuthCommandOnly().catch((err) => {
-            const error = err instanceof Error ? err : new Error(String(err));
-            this.log?.error(error);
-        });
+        this.sendAuthCommandOnly()
+            .then((sent) => {
+                if (!sent) {
+                    this.log?.warn("cmd=2 resend skipped during pending (prepareAuthPayload guard failed)");
+                }
+            })
+            .catch((err) => {
+                const error = err instanceof Error ? err : new Error(String(err));
+                this.log?.error(error);
+            });
     }
 
     /**
