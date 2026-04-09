@@ -838,6 +838,11 @@ export class TCNetClient extends EventEmitter {
     /**
      * detectBridgeIsWindows の本体ロジック。
      * single-flight 制御とは分離してあるため、直接呼び出すべきではない。
+     *
+     * TOCTOU ガード: 検出開始時の `server.address` をキャプチャし、キャッシュ書き込み
+     * 直前に現在値と比較する。ping 実行中に Bridge 切り替え等で `server.address` が
+     * 変わった場合、古い Bridge 向けの判定で `bridgeIsWindows` キャッシュを
+     * 上書きしないことで、後続呼び出しが stale な値を返すのを防ぐ。
      * @returns Windowsならtrue、それ以外ならfalse
      */
     private async performBridgeOsDetection(): Promise<boolean> {
@@ -855,9 +860,17 @@ export class TCNetClient extends EventEmitter {
 
         const clientIp = this.getClientIp();
         if (clientIp && bridgeIp === clientIp) {
-            this.bridgeIsWindows = platform() === "win32";
-            this.log?.debug(`Bridge OS detected (local): ${this.bridgeIsWindows ? "Windows" : "non-Windows"}`);
-            return this.bridgeIsWindows;
+            const result = platform() === "win32";
+            // 検出開始時の bridgeIp と現在値が一致する場合のみキャッシュを更新する
+            if (this.server?.address === bridgeIp) {
+                this.bridgeIsWindows = result;
+                this.log?.debug(`Bridge OS detected (local): ${result ? "Windows" : "non-Windows"}`);
+            } else {
+                this.log?.debug(
+                    `Bridge OS detection: server changed during detection (${bridgeIp} -> ${this.server?.address ?? "null"}), discarding stale result`,
+                );
+            }
+            return result;
         }
 
         try {
@@ -872,8 +885,17 @@ export class TCNetClient extends EventEmitter {
             const match = output.match(/ttl[=:](\d+)/i);
             if (match) {
                 const ttl = Number.parseInt(match[1], 10);
-                this.bridgeIsWindows = ttl > 64;
-                this.log?.debug(`Bridge OS detected (TTL=${ttl}): ${this.bridgeIsWindows ? "Windows" : "non-Windows"}`);
+                const result = ttl > 64;
+                // ping 中に server.address が変わった場合は古い判定を書き込まない
+                if (this.server?.address === bridgeIp) {
+                    this.bridgeIsWindows = result;
+                    this.log?.debug(`Bridge OS detected (TTL=${ttl}): ${result ? "Windows" : "non-Windows"}`);
+                } else {
+                    this.log?.debug(
+                        `Bridge OS detection: server changed during ping (${bridgeIp} -> ${this.server?.address ?? "null"}), discarding stale result`,
+                    );
+                }
+                return result;
             } else {
                 // TTL未検出は確定的でないためキャッシュせず、次回再検出を許可する
                 this.log?.debug("Bridge OS detection: TTL not found in ping output, assuming non-Windows");
@@ -885,8 +907,6 @@ export class TCNetClient extends EventEmitter {
             this.log?.debug(`Bridge OS detection: ping failed (${msg}), assuming non-Windows`);
             return false;
         }
-
-        return this.bridgeIsWindows;
     }
 
     /**

@@ -277,4 +277,37 @@ describe("detectBridgeIsWindows", () => {
         expect(r3).toBe(true);
         expect(execFileMock).toHaveBeenCalledTimes(1);
     });
+
+    it("検出中にserver.addressが変わると古い判定をキャッシュしない", async () => {
+        // TOCTOU ガードの検証。ping 完了前に server を別の Bridge に切り替えた
+        // シナリオで、古い Bridge 向けの判定が新しい Bridge 用のキャッシュを
+        // 上書きしないことを検証する。
+        platformMock.mockReturnValue("win32");
+        let resolvePing: (stdout: string) => void = () => {};
+        execFileMock.mockImplementation(
+            (_cmd: string, _args: string[], _opts: object, cb: (err: Error | null, stdout: string) => void) => {
+                // ping 応答を手動で制御するためコールバックを保留する
+                resolvePing = (stdout: string) => cb(null, stdout);
+            },
+        );
+        const client = new BridgeOsTestClient();
+        client.setServer({ address: "192.168.0.100", port: 65207 });
+        client.setSelectedAdapter(createAdapter("192.168.0.10"));
+
+        // 検出開始 (ping は pending のまま)
+        const detectPromise = client.callDetectBridgeIsWindows();
+
+        // ping 実行中に server を別 Bridge に切り替える
+        client.setServer({ address: "192.168.0.130", port: 65207 });
+
+        // Bridge A (Windows, TTL=128) 向けの ping 結果を返す
+        resolvePing("Reply from 192.168.0.100: bytes=32 time<1ms TTL=128\n");
+
+        const result = await detectPromise;
+
+        // 呼び出し元は古い判定 (true = Windows) を受け取る
+        expect(result).toBe(true);
+        // ただし server が変わったためキャッシュは更新されない
+        expect(client.getBridgeIsWindows()).toBeNull();
+    });
 });
