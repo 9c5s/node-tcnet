@@ -10,7 +10,6 @@ import { generateAuthPayload, type AuthState } from "./auth";
 const TCNET_BROADCAST_PORT = 60000;
 const TCNET_TIMESTAMP_PORT = 60001;
 const AUTH_RESPONSE_TIMEOUT = 5000;
-const AUTH_REFRESH_TIMEOUT = 100_000;
 
 type STORED_REQUEST = {
     resolve: (value: nw.TCNetDataPacket | PromiseLike<nw.TCNetDataPacket>) => void;
@@ -55,15 +54,6 @@ export class TCNetConfiguration {
     switchRetryInterval = 1000;
     /** XTEA暗号文 (16桁hex文字列)。設定時はTCNASDP認証を実行する。環境変数 TCNET_XTEA_CIPHERTEXT で上書き可能 */
     xteaCiphertext?: string = process.env.TCNET_XTEA_CIPHERTEXT;
-    /** 認証の自動リフレッシュを有効にするかどうか。xteaCiphertext設定時、初回認証成功後にタイマーが起動する */
-    autoReauth = true;
-    /**
-     * 自動リフレッシュの実行間隔 (ミリ秒)
-     * Bridgeの認証タイムアウト(約100秒)より短く設定する必要がある。
-     * 10000ms未満に設定された場合は自動リフレッシュが有効にならない。
-     * デフォルト60000ms(60秒)はv3a実機テストで240秒間のLICENSE維持が実証された値である
-     */
-    reauthInterval = 60_000;
 }
 
 /**
@@ -104,8 +94,6 @@ export class TCNetClient extends EventEmitter {
     private sessionToken: number | null = null;
     private authTimeoutId: NodeJS.Timeout | null = null;
     private bridgeIsWindows: boolean | null = null;
-    private reauthIntervalId: NodeJS.Timeout | null = null;
-    private reauthPromise: Promise<void> | null = null;
 
     /**
      * TCNetClientを初期化する
@@ -251,12 +239,6 @@ export class TCNetClient extends EventEmitter {
         this._selectedAdapter = null;
         this.server = null;
         this.detectingAdapter = false;
-        this.stopAutoReauth();
-        // reauthPromise進行中の場合、executeReauthのリスナーが
-        // authFailedを捕捉してPromiseをrejectできるようにする
-        if (this.reauthPromise) {
-            this.emit("authFailed");
-        }
         this.resetAuthSession();
         if (this.connectTimeoutId) {
             clearTimeout(this.connectTimeoutId);
@@ -912,111 +894,6 @@ export class TCNetClient extends EventEmitter {
         return !!ct && /^[0-9a-f]{16}$/i.test(ct);
     }
 
-    /** 自動再認証タイマーを起動する */
-    private startAutoReauth(): void {
-        if (!this.connected || this._authState !== "authenticated") return;
-        if (!this.config.autoReauth || this.config.reauthInterval < 10_000) return;
-        if (this.reauthIntervalId) return;
-        this.reauthIntervalId = setInterval(() => {
-            this.performReauth().catch((err) => {
-                const error = err instanceof Error ? err : new Error(String(err));
-                this.log?.error(error);
-            });
-        }, this.config.reauthInterval);
-        this.reauthIntervalId.unref();
-    }
-
-    /** 自動再認証タイマーを停止する */
-    private stopAutoReauth(): void {
-        if (this.reauthIntervalId) {
-            clearInterval(this.reauthIntervalId);
-            this.reauthIntervalId = null;
-        }
-    }
-
-    /**
-     * 再認証を実行する (内部用)
-     * authenticated状態でのみ動作する。single-flight保証付き。
-     * @param timeoutMs - 認証タイムアウト (ms)
-     */
-    private async performReauth(timeoutMs: number = AUTH_REFRESH_TIMEOUT): Promise<void> {
-        if (this._authState !== "authenticated" || this.reauthPromise) return;
-        this.reauthPromise = this.executeReauth(timeoutMs);
-        try {
-            await this.reauthPromise;
-        } finally {
-            this.reauthPromise = null;
-        }
-    }
-
-    /**
-     * 再認証の実行本体
-     * 認証セッションのうち必要な状態(sessionToken, authTimeoutId)のみリセットし、
-     * Bridgeからのtoken再送とauthenticated/authFailedイベントを待って完了判定する。
-     * resetAuthSessionは呼ばない(bridgeIsWindowsキャッシュを保持するため)。
-     * sendAuthSequenceも呼ばない(sessionToken=nullガードでresetAuthSessionが
-     * 再実行されrefreshing状態が失われるため)。
-     * @param timeoutMs - 認証タイムアウト (ms)
-     */
-    private async executeReauth(timeoutMs: number = AUTH_REFRESH_TIMEOUT): Promise<void> {
-        let cleanup: (() => void) | undefined;
-        try {
-            // resetAuthSessionの代わりに必要な状態のみ個別リセットする
-            // bridgeIsWindowsキャッシュを保持して毎回のOS判定pingを回避する
-            // (Bridge OSはセッション中に変わらない)
-            this.sessionToken = null;
-            if (this.authTimeoutId) {
-                clearTimeout(this.authTimeoutId);
-                this.authTimeoutId = null;
-            }
-            // handleAuthPacketはcmd=1受理条件に"refreshing"を含むため、
-            // この状態でもBridgeからのtoken受信を正常に処理できる
-            this._authState = "refreshing";
-
-            // リスナーを登録してBridgeからのtoken再発行を待つ
-            // sendAuthSequenceは呼ばない: sessionToken=nullのガードでresetAuthSessionが
-            // 再実行されrefreshing状態が失われるため。Bridgeは定期的なOptInブロードキャスト
-            // 経由でtoken(AppData cmd=1)を再送するので、明示的なhello送信は不要である
-            const authPromise = new Promise<void>((resolve, reject) => {
-                const onAuth = (): void => {
-                    doCleanup();
-                    resolve();
-                };
-                const onFail = (): void => {
-                    doCleanup();
-                    reject(new Error("Reauth failed"));
-                };
-                const timer = setTimeout(() => {
-                    doCleanup();
-                    reject(new Error("Reauth timeout"));
-                }, timeoutMs);
-                timer.unref();
-                const doCleanup = (): void => {
-                    this.removeListener("authenticated", onAuth);
-                    this.removeListener("authFailed", onFail);
-                    clearTimeout(timer);
-                };
-                cleanup = doCleanup;
-                this.once("authenticated", onAuth);
-                this.once("authFailed", onFail);
-            });
-
-            await authPromise;
-            this.emit("reauthenticated");
-        } catch (err) {
-            cleanup?.();
-            // タイムアウト等で失敗した場合、"refreshing"のままだと
-            // ユーザーが永遠に再認証中と誤認する。"failed"に戻すことで
-            // handleAuthPacketがBridgeからのtoken再送を受理して自然回復できる
-            if (this._authState === "refreshing") {
-                this.sessionToken = null;
-                this._authState = "failed";
-            }
-            this.emit("reauthFailed", err instanceof Error ? err : new Error(String(err)));
-            throw err;
-        }
-    }
-
     /** 認証セッションをリセットする (再試行可能な状態に戻す) */
     private resetAuthSession(): void {
         this._authState = "none";
@@ -1135,7 +1012,7 @@ export class TCNetClient extends EventEmitter {
             if (
                 packet.cmd === 1 &&
                 this.sessionToken === null &&
-                (this._authState === "none" || this._authState === "failed" || this._authState === "refreshing")
+                (this._authState === "none" || this._authState === "failed")
             ) {
                 this.sessionToken = packet.token;
                 this._authState = "pending";
@@ -1182,7 +1059,6 @@ export class TCNetClient extends EventEmitter {
                 this._authState = "authenticated";
                 this.log?.debug("TCNASDP authentication succeeded");
                 this.emit("authenticated");
-                this.startAutoReauth();
             } else if (b0 === 0xff && b1 === 0xff && b2 === 0x0d) {
                 if (this.authTimeoutId) {
                     clearTimeout(this.authTimeoutId);
@@ -1194,28 +1070,6 @@ export class TCNetClient extends EventEmitter {
                 this.emit("authFailed");
             }
         }
-    }
-
-    /**
-     * 認証を手動でリフレッシュする
-     *
-     * 自動リフレッシュが無効化されている場合、または任意のタイミングで認証を
-     * 更新したい場合に呼び出す。既にリフレッシュ中の場合は進行中のPromiseを返す。
-     * @param timeoutMs - Bridgeからの応答待ちタイムアウト (デフォルト100000ms)
-     * @returns 認証完了時にresolveする
-     * @throws {Error} xteaCiphertext未設定、未認証、接続未確立の場合
-     */
-    public async reauth(timeoutMs: number = AUTH_REFRESH_TIMEOUT): Promise<void> {
-        if (!this.hasValidXteaCiphertext()) {
-            throw new Error("xteaCiphertext not configured");
-        }
-        if (this.reauthPromise) {
-            return this.reauthPromise;
-        }
-        if (this._authState !== "authenticated") {
-            throw new Error("Cannot reauth: not authenticated");
-        }
-        return this.performReauth(timeoutMs);
     }
 
     /**

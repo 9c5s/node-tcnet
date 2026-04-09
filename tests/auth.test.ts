@@ -268,24 +268,6 @@ class AuthTestClient extends TCNetClient {
     public clearXteaCiphertext(): void {
         (this as any).config.xteaCiphertext = undefined;
     }
-    public getReauthPromise(): Promise<void> | null {
-        return (this as any).reauthPromise;
-    }
-    public async callPerformReauth(): Promise<void> {
-        return (this as any).performReauth();
-    }
-    public async callReauth(timeoutMs?: number): Promise<void> {
-        return (this as any).reauth(timeoutMs);
-    }
-    public callStartAutoReauth(): void {
-        (this as any).startAutoReauth();
-    }
-    public callStopAutoReauth(): void {
-        (this as any).stopAutoReauth();
-    }
-    public getReauthIntervalId(): NodeJS.Timeout | null {
-        return (this as any).reauthIntervalId;
-    }
 }
 
 function createAppDataPacket(cmd: number, token: number): TCNetApplicationDataPacket {
@@ -407,14 +389,18 @@ describe("handleAuthPacket", () => {
         expect(client.getSessionToken()).toBeNull();
     });
 
-    it("authStateがnone以外のときAppData cmd=1を無視する", () => {
+    it("authenticated状態でAppData cmd=1を受信してもauthStateは変化しない", () => {
+        // SK方式の反応型プロトコル: authenticated状態で cmd=1 を受信すると
+        // sendAuthCommandOnlyが呼ばれるが、state遷移は発生しない。
+        // (sendAuthCommandOnlyはbroadcastSocket未設定のため実際の送信には至らない)
         const client = new AuthTestClient();
         client.setAuthState("authenticated");
+        (client as any).sessionToken = 0x12345678;
         const appData = createAppDataPacket(1, 0x12345678);
 
         client.callHandleAuth(appData);
 
-        // 既にauthenticatedなので変化しない
+        // authenticatedのまま維持される
         expect(client.authenticationState).toBe("authenticated");
     });
 
@@ -450,52 +436,6 @@ describe("handleAuthPacket", () => {
 
         expect(client.authenticationState).toBe("none");
         expect(client.getSessionToken()).toBeNull();
-    });
-
-    it("初回認証成功時にautoReauthタイマーが起動する", () => {
-        const client = new AuthTestClient();
-        (client as any).connected = true;
-        (client as any).config.autoReauth = true;
-        (client as any).config.reauthInterval = 60_000;
-        client.setAuthState("pending");
-
-        client.callHandleAuth(createErrorPacket(0xff, 0xff, 0xff));
-
-        expect(client.authenticationState).toBe("authenticated");
-        expect(client.getReauthIntervalId()).not.toBeNull();
-        client.callStopAutoReauth(); // クリーンアップ
-    });
-
-    it("autoReauth=falseの場合タイマーは起動しない", () => {
-        const client = new AuthTestClient();
-        (client as any).connected = true;
-        (client as any).config.autoReauth = false;
-        client.setAuthState("pending");
-
-        client.callHandleAuth(createErrorPacket(0xff, 0xff, 0xff));
-
-        expect(client.authenticationState).toBe("authenticated");
-        expect(client.getReauthIntervalId()).toBeNull();
-    });
-
-    it("再認証成功時にstartAutoReauthが重複呼び出しされてもタイマーが1つのまま", () => {
-        const client = new AuthTestClient();
-        (client as any).connected = true;
-        (client as any).config.autoReauth = true;
-        (client as any).config.reauthInterval = 60_000;
-        client.setAuthState("pending");
-
-        // 初回認証成功 → タイマー起動
-        client.callHandleAuth(createErrorPacket(0xff, 0xff, 0xff));
-        const firstTimerId = client.getReauthIntervalId();
-        expect(firstTimerId).not.toBeNull();
-
-        // 再認証成功 (再びauthenticatedパスを通る) → タイマーは既存のまま
-        client.setAuthState("pending");
-        client.callHandleAuth(createErrorPacket(0xff, 0xff, 0xff));
-        expect(client.getReauthIntervalId()).toBe(firstTimerId);
-
-        client.callStopAutoReauth(); // クリーンアップ
     });
 });
 
@@ -869,245 +809,101 @@ describe("sendAuthSequence XTEA暗号文バイトリバース", () => {
     });
 });
 
-describe("performReauth", () => {
-    it("authenticated以外の状態では何もしない", async () => {
-        const client = new AuthTestClient();
-        client.setAuthState("none");
-        await client.callPerformReauth();
-        expect(client.authenticationState).toBe("none");
+describe("sendAuthCommandOnly (authenticated状態でのcmd=1応答)", () => {
+    function createAdapter(ip: string) {
+        return {
+            name: "test0",
+            addresses: [
+                {
+                    address: ip,
+                    netmask: "255.255.255.0",
+                    family: "IPv4" as const,
+                    mac: "00:00:00:00:00:00",
+                    internal: false,
+                    cidr: `${ip}/24`,
+                },
+            ],
+        };
+    }
+
+    function makeClient(): AuthSequenceTestClient {
+        const client = new AuthSequenceTestClient();
+        client.setSessionToken(0xb3fe319e);
+        client.setAuthState("authenticated");
+        client.setBridgeIsWindows(false);
+        client.setSelectedAdapter(createAdapter("192.168.0.10"));
+        (client as any).config.broadcastAddress = "255.255.255.255";
+        return client;
+    }
+
+    it("cmd=2 (auth) だけを送信する (cmd=0 helloは送らない)", async () => {
+        const client = makeClient();
+
+        const sentBuffers: Buffer[] = [];
+        client.setBroadcastSocket({
+            send: vi.fn((buf: Buffer, _port: number, _addr: string, cb: (err: Error | null) => void) => {
+                sentBuffers.push(Buffer.from(buf));
+                cb(null);
+            }),
+        });
+
+        await (client as any).sendAuthCommandOnly();
+
+        // sendAuthSequence とは異なり hello + auth ではなく auth 1 つだけ
+        expect(sentBuffers.length).toBe(1);
+        // cmd byte はAppDataボディのoffset 42 (cmd=2)
+        expect(sentBuffers[0][42]).toBe(2);
     });
 
-    it("authenticatedからresetAuthSessionで初期化されauthenticatedイベントで復帰する", async () => {
-        const client = new AuthTestClient();
-        client.setAuthState("authenticated");
+    it("sessionToken=nullのときは何もしない (authenticated状態を壊さない)", async () => {
+        const client = makeClient();
+        (client as any).sessionToken = null;
 
-        const promise = client.callPerformReauth();
-        // executeReauthがresetAuthSession後にstate=refreshingを設定する
-        // sendAuthSequenceのawaitまで同期実行されるため、ここで観測可能
-        expect(client.authenticationState).toBe("refreshing");
+        const send = vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb());
+        client.setBroadcastSocket({ send });
 
-        // authenticatedイベントをシミュレートして再認証完了
-        setTimeout(() => {
-            client.setAuthState("authenticated");
-            client.emit("authenticated");
-        }, 10);
-        await promise;
+        await (client as any).sendAuthCommandOnly();
+
+        expect(send).not.toHaveBeenCalled();
         expect(client.authenticationState).toBe("authenticated");
     });
 
-    it("single-flight: reauthPromiseが存在する間は2回目がskipされる", async () => {
-        const client = new AuthTestClient();
-        client.setAuthState("authenticated");
+    it("handleAuthPacketがauthenticated状態のcmd=1でsendAuthCommandOnlyを起動する", async () => {
+        const client = makeClient();
 
-        const p1 = client.callPerformReauth();
-        // reauthPromiseが設定済み、かつauthStateがrefreshingに遷移済みのため2回目はskip
-        const p2 = client.callPerformReauth();
-        await expect(p2).resolves.toBeUndefined();
+        const sentBuffers: Buffer[] = [];
+        client.setBroadcastSocket({
+            send: vi.fn((buf: Buffer, _port: number, _addr: string, cb: (err: Error | null) => void) => {
+                sentBuffers.push(Buffer.from(buf));
+                cb(null);
+            }),
+        });
 
-        setTimeout(() => {
-            client.setAuthState("authenticated");
-            client.emit("authenticated");
-        }, 10);
-        await p1;
-    });
+        const appData = createAppDataPacket(1, 0xb3fe319e);
+        client.callHandleAuth(appData);
 
-    it("reauthenticatedイベントが成功時に発火する", async () => {
-        const client = new AuthTestClient();
-        client.setAuthState("authenticated");
-        const handler = vi.fn();
-        client.on("reauthenticated", handler);
+        // sendAuthCommandOnly は fire-and-forget なので microtask を回して完了待ち
+        await new Promise((r) => setImmediate(r));
+        await new Promise((r) => setImmediate(r));
 
-        const promise = client.callPerformReauth();
-        // 手動で認証成功をシミュレート
-        setTimeout(() => {
-            client.setAuthState("authenticated");
-            client.emit("authenticated");
-        }, 10);
-        await promise;
-
-        expect(handler).toHaveBeenCalledTimes(1);
-    });
-
-    it("reauthFailedイベントが失敗時に発火する", async () => {
-        const client = new AuthTestClient();
-        client.setAuthState("authenticated");
-        const handler = vi.fn();
-        client.on("reauthFailed", handler);
-
-        const promise = client.callPerformReauth();
-        // 手動で認証失敗をシミュレート
-        setTimeout(() => client.emit("authFailed"), 10);
-        await expect(promise).rejects.toThrow();
-
-        expect(handler).toHaveBeenCalledTimes(1);
-    });
-
-    it("失敗後にauthStateがfailedに戻る", async () => {
-        const client = new AuthTestClient();
-        client.setAuthState("authenticated");
-
-        const promise = client.callPerformReauth();
-        expect(client.authenticationState).toBe("refreshing");
-
-        // 手動で認証失敗をシミュレート
-        setTimeout(() => client.emit("authFailed"), 10);
-        await expect(promise).rejects.toThrow();
-
-        // タイムアウト等の失敗でrefreshingのまま残らずfailedに戻る
-        // (authFailedパスではhandleAuthPacketが先にfailedに設定するが、
-        //  disconnect等でrefreshingのままcatchに入った場合の回復を検証)
-        expect(client.authenticationState).toBe("failed");
-    });
-});
-
-describe("autoReauth タイマー", () => {
-    it("startAutoReauthでタイマーが起動する", () => {
-        const client = new AuthTestClient();
-        (client as any).connected = true;
-        client.setAuthState("authenticated");
-        (client as any).config.autoReauth = true;
-        (client as any).config.reauthInterval = 60_000;
-
-        client.callStartAutoReauth();
-        expect(client.getReauthIntervalId()).not.toBeNull();
-        client.callStopAutoReauth();
-    });
-
-    it("未接続状態ではタイマーが起動しない", () => {
-        const client = new AuthTestClient();
-        client.setAuthState("authenticated");
-        (client as any).config.autoReauth = true;
-        (client as any).config.reauthInterval = 60_000;
-        // connectedがfalse(デフォルト)の場合
-        expect((client as any).connected).toBe(false);
-
-        client.callStartAutoReauth();
-        expect(client.getReauthIntervalId()).toBeNull();
-    });
-
-    it("autoReauth=falseではタイマーが起動しない", () => {
-        const client = new AuthTestClient();
-        (client as any).connected = true;
-        client.setAuthState("authenticated");
-        (client as any).config.autoReauth = false;
-
-        client.callStartAutoReauth();
-        expect(client.getReauthIntervalId()).toBeNull();
-    });
-
-    it("reauthInterval < 10000ではタイマーが起動しない", () => {
-        const client = new AuthTestClient();
-        (client as any).connected = true;
-        client.setAuthState("authenticated");
-        (client as any).config.autoReauth = true;
-        (client as any).config.reauthInterval = 9999;
-
-        client.callStartAutoReauth();
-        expect(client.getReauthIntervalId()).toBeNull();
-    });
-
-    it("reauthInterval = 10000 (下限ちょうど) ではタイマーが起動する", () => {
-        const client = new AuthTestClient();
-        (client as any).connected = true;
-        client.setAuthState("authenticated");
-        (client as any).config.autoReauth = true;
-        (client as any).config.reauthInterval = 10_000;
-
-        client.callStartAutoReauth();
-        expect(client.getReauthIntervalId()).not.toBeNull();
-        client.callStopAutoReauth();
-    });
-
-    it("stopAutoReauthでタイマーが停止する", () => {
-        const client = new AuthTestClient();
-        (client as any).connected = true;
-        client.setAuthState("authenticated");
-        (client as any).config.autoReauth = true;
-        (client as any).config.reauthInterval = 60_000;
-
-        client.callStartAutoReauth();
-        expect(client.getReauthIntervalId()).not.toBeNull();
-        client.callStopAutoReauth();
-        expect(client.getReauthIntervalId()).toBeNull();
-    });
-});
-
-describe("reauth (public API)", () => {
-    it("未認証状態ではエラーをスローする", async () => {
-        const client = new AuthTestClient();
-        client.setAuthState("none");
-        await expect(client.callReauth()).rejects.toThrow("Cannot reauth: not authenticated");
-    });
-
-    it("xteaCiphertext未設定ではエラーをスローする", async () => {
-        const client = new AuthTestClient();
-        client.setAuthState("authenticated");
-        client.clearXteaCiphertext();
-        await expect(client.callReauth()).rejects.toThrow("xteaCiphertext not configured");
-    });
-
-    it("authenticated状態で呼び出せる", async () => {
-        const client = new AuthTestClient();
-        client.setAuthState("authenticated");
-
-        const promise = client.callReauth();
-        // authenticatedイベントをシミュレート
-        setTimeout(() => {
-            client.setAuthState("authenticated");
-            client.emit("authenticated");
-        }, 10);
-        await promise;
+        expect(sentBuffers.length).toBe(1);
+        expect(sentBuffers[0][42]).toBe(2);
+        // state は authenticated のまま維持される
         expect(client.authenticationState).toBe("authenticated");
     });
 
-    it("single-flight: 進行中のreauthに相乗りする", async () => {
-        const client = new AuthTestClient();
-        client.setAuthState("authenticated");
+    it("cmd=1のtokenが既存と異なる場合はsessionTokenを更新する", () => {
+        const client = makeClient();
+        client.setSessionToken(0xaaaaaaaa);
+        client.setBroadcastSocket({
+            send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()),
+        });
 
-        const p1 = client.callReauth();
-        const p2 = client.callReauth();
+        // Bridgeが別tokenを送ってきた想定 (SKの実測では常に同一tokenだが防御的に更新する)
+        const appData = createAppDataPacket(1, 0xbbbbbbbb);
+        client.callHandleAuth(appData);
 
-        // 両方同じPromiseを共有する
-        setTimeout(() => {
-            client.setAuthState("authenticated");
-            client.emit("authenticated");
-        }, 10);
-        await Promise.all([p1, p2]);
-    });
-});
-
-describe("disconnect時のreauthクリーンアップ", () => {
-    it("stopAutoReauthが呼ばれタイマーが停止する", () => {
-        const client = new AuthTestClient();
-        (client as any).connected = true;
-        client.setAuthState("authenticated");
-        (client as any).config.autoReauth = true;
-        (client as any).config.reauthInterval = 60_000;
-        client.callStartAutoReauth();
-        expect(client.getReauthIntervalId()).not.toBeNull();
-
-        // disconnectSocketsの代わりにstopAutoReauthを直接テスト
-        // (disconnectSocketsはソケット操作を伴うため単体テストでは呼べない)
-        client.callStopAutoReauth();
-        expect(client.getReauthIntervalId()).toBeNull();
-    });
-
-    it("reauthPromise進行中にdisconnect相当の操作でPromiseがrejectされる", async () => {
-        const client = new AuthTestClient();
-        client.setAuthState("authenticated");
-
-        // 再認証を開始 (authenticatedイベント待ちの状態にする)
-        const promise = client.callPerformReauth();
-        expect(client.getReauthPromise()).not.toBeNull();
-
-        // disconnectSocketsの実フローを再現:
-        // stopAutoReauth → reauthPromise存在時にauthFailed emit → resetAuthSession
-        client.callStopAutoReauth();
-        if (client.getReauthPromise()) {
-            client.emit("authFailed");
-        }
-        (client as any).resetAuthSession();
-        await expect(promise).rejects.toThrow();
-        expect(client.getReauthPromise()).toBeNull();
+        // token更新はhandleAuthPacket内で同期的に行われるため即座に検証できる
+        expect(client.getSessionToken()).toBe(0xbbbbbbbb);
     });
 });
