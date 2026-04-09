@@ -908,7 +908,12 @@ export class TCNetClient extends EventEmitter {
         return !!ct && /^[0-9a-f]{16}$/i.test(ct);
     }
 
-    /** 認証セッションをリセットする (再試行可能な状態に戻す) */
+    /**
+     * 認証セッションを初期状態にリセットする
+     *
+     * _authState/sessionToken/bridgeIsWindows/authResponseFailureCount/authTimeoutId を
+     * 全て初期値に戻す。Bridge からの次の cmd=1 を受信すれば再度初回認証フローに入る。
+     */
     protected resetAuthSession(): void {
         this._authState = "none";
         this.sessionToken = null;
