@@ -1138,15 +1138,20 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * pending 中の cmd=1 再受信で cmd=2 のみを再送する
+     * pending 中の cmd=1 再受信時の処理
+     * 同一 token なら cmd=2 のみ再送、token 変化時は認証世代を刷新する
      * @param packet - 受信した AppData cmd=1 パケット
      */
     private handlePendingReauthRequest(packet: nw.TCNetApplicationDataPacket): void {
         if (packet.token !== this.sessionToken) {
+            // token 変化は新しい認証世代として扱い、古い試行を完全にリセットしてから初回認証を再開する
+            // (古いタイマーが新世代を早期リセットするのを防ぐ。bridgeIsWindows はセッション間で保持)
             this.log?.debug(
-                `Pending auth token changed: ${this.formatToken(this.sessionToken!)} -> ${this.formatToken(packet.token)}`,
+                `Pending auth token changed, restarting: ${this.formatToken(this.sessionToken!)} -> ${this.formatToken(packet.token)}`,
             );
-            this.sessionToken = packet.token;
+            this.resetAuthSession(true);
+            this.handleInitialAuthRequest(packet);
+            return;
         }
         this.log?.debug("cmd=1 in pending state, resending cmd=2");
         this.sendAuthCommandOnly().catch((err) => {

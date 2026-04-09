@@ -37,6 +37,26 @@ export async function flushAsync(iterations = 5): Promise<void> {
 }
 
 /**
+ * 単一 IPv4 アドレスを持つテスト用ネットワークアダプタを生成する
+ * @param ip - アダプタに割り当てる IPv4 アドレス
+ */
+export function createAdapter(ip: string): NetworkAdapterInfo {
+    return {
+        name: "test0",
+        addresses: [
+            {
+                address: ip,
+                netmask: "255.255.255.0",
+                family: "IPv4" as const,
+                mac: "00:00:00:00:00:00",
+                internal: false,
+                cidr: `${ip}/24`,
+            },
+        ],
+    };
+}
+
+/**
  * handleAuthPacket の動作検証用テストヘルパー
  *
  * sendAuthSequence をコンストラクタでモックし、実際のネットワーク操作を回避する。
