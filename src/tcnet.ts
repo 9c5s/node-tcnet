@@ -96,7 +96,10 @@ export class TCNetClient extends EventEmitter {
     private authTimeoutId: NodeJS.Timeout | null = null;
     protected bridgeIsWindows: boolean | null = null;
     // detectBridgeIsWindows の in-flight Promise を保持し並行呼び出しを single-flight 化する
+    // bridgeOsDetectionTargetIp は現在 in-flight な Promise が対象としている Bridge IP であり、
+    // Bridge 切り替え後の呼び出しで古い Promise を共有しないためのキーとして機能する
     private bridgeOsDetectionPromise: Promise<boolean> | null = null;
+    private bridgeOsDetectionTargetIp: string | null = null;
     // authenticated 状態での sendAuthCommandOnly 連続失敗回数を記録する
     protected authResponseFailureCount: number = 0;
     // 連続失敗がこの閾値に到達したら resetAuthSession で再認証を促す
@@ -820,17 +823,35 @@ export class TCNetClient extends EventEmitter {
      * 結果はインスタンス変数にキャッシュし、セッション中1回だけ検出する。
      *
      * 連続 cmd=1 flood 等で並行呼び出しが起きた場合は、in-flight Promise を
-     * 共有する single-flight パターンにより ping の重複起動を防ぐ。
+     * 共有する single-flight パターンにより ping の重複起動を防ぐ。ただし
+     * Bridge 切り替え (`server.address` 変化) 後は古い Promise を共有せず、
+     * 新しい Bridge 向けに別の ping を発行する。
      * @returns Windowsならtrue、それ以外ならfalse
      */
     protected async detectBridgeIsWindows(): Promise<boolean> {
         // キャッシュヒットは in-flight 判定より優先する
         if (this.bridgeIsWindows !== null) return this.bridgeIsWindows;
-        // in-flight Promise がある場合は同じ Promise を共有する
-        if (this.bridgeOsDetectionPromise) return this.bridgeOsDetectionPromise;
 
-        this.bridgeOsDetectionPromise = this.performBridgeOsDetection().finally(() => {
-            this.bridgeOsDetectionPromise = null;
+        const bridgeIp = this.server?.address;
+        if (!bridgeIp) {
+            // serverが未設定の場合はキャッシュせず、次回の呼び出しで再検出を許可する
+            return false;
+        }
+
+        // in-flight Promise は同一 Bridge IP の呼び出しに対してのみ共有する
+        // (Bridge 切り替え後に古い Bridge 向けの判定を新 Bridge に渡さないため)
+        if (this.bridgeOsDetectionPromise && this.bridgeOsDetectionTargetIp === bridgeIp) {
+            return this.bridgeOsDetectionPromise;
+        }
+
+        this.bridgeOsDetectionTargetIp = bridgeIp;
+        this.bridgeOsDetectionPromise = this.performBridgeOsDetection(bridgeIp).finally(() => {
+            // 自分の起動した Promise が in-flight のまま残っている場合のみクリアする
+            // (Bridge 切り替えで別の Promise に既に上書きされている場合は触らない)
+            if (this.bridgeOsDetectionTargetIp === bridgeIp) {
+                this.bridgeOsDetectionPromise = null;
+                this.bridgeOsDetectionTargetIp = null;
+            }
         });
         return this.bridgeOsDetectionPromise;
     }
@@ -839,19 +860,14 @@ export class TCNetClient extends EventEmitter {
      * detectBridgeIsWindows の本体ロジック。
      * single-flight 制御とは分離してあるため、直接呼び出すべきではない。
      *
-     * TOCTOU ガード: 検出開始時の `server.address` をキャプチャし、キャッシュ書き込み
-     * 直前に現在値と比較する。ping 実行中に Bridge 切り替え等で `server.address` が
-     * 変わった場合、古い Bridge 向けの判定で `bridgeIsWindows` キャッシュを
-     * 上書きしないことで、後続呼び出しが stale な値を返すのを防ぐ。
+     * TOCTOU ガード: 呼び出し元から渡された `bridgeIp` をキャッシュ書き込み直前に
+     * 現在の `server.address` と比較する。ping 実行中に Bridge 切り替え等で
+     * `server.address` が変わった場合、古い Bridge 向けの判定で
+     * `bridgeIsWindows` キャッシュを上書きしない。
+     * @param bridgeIp - 検出開始時にキャプチャした Bridge IP
      * @returns Windowsならtrue、それ以外ならfalse
      */
-    private async performBridgeOsDetection(): Promise<boolean> {
-        const bridgeIp = this.server?.address;
-        if (!bridgeIp) {
-            // serverが未設定の場合はキャッシュせず、次回の呼び出しで再検出を許可する
-            return false;
-        }
-
+    private async performBridgeOsDetection(bridgeIp: string): Promise<boolean> {
         // IPv4フォーマットバリデーション (execFileに渡す前の防御)
         // 不正IPは確定的でないためキャッシュしない
         if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(bridgeIp)) {
