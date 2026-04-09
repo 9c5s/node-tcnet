@@ -1104,6 +1104,12 @@ export class TCNetClient extends EventEmitter {
             return;
         }
 
+        // pending 中の cmd=1 再受信: 反応型プロトコルで cmd=2 を再送する
+        if (this._authState === "pending" && this.sessionToken !== null) {
+            this.handlePendingReauthRequest(packet);
+            return;
+        }
+
         // 継続認証: authenticated 状態で Bridge からの再認証要求が来た場合
         if (this._authState === "authenticated" && this.sessionToken !== null) {
             this.handleReauthRequest(packet);
@@ -1126,6 +1132,24 @@ export class TCNetClient extends EventEmitter {
         }, AUTH_RESPONSE_TIMEOUT);
         this.sendAuthSequence().catch((err) => {
             this.resetAuthSession();
+            const error = err instanceof Error ? err : new Error(String(err));
+            this.log?.error(error);
+        });
+    }
+
+    /**
+     * pending 中の cmd=1 再受信で cmd=2 のみを再送する
+     * @param packet - 受信した AppData cmd=1 パケット
+     */
+    private handlePendingReauthRequest(packet: nw.TCNetApplicationDataPacket): void {
+        if (packet.token !== this.sessionToken) {
+            this.log?.debug(
+                `Pending auth token changed: ${this.formatToken(this.sessionToken!)} -> ${this.formatToken(packet.token)}`,
+            );
+            this.sessionToken = packet.token;
+        }
+        this.log?.debug("cmd=1 in pending state, resending cmd=2");
+        this.sendAuthCommandOnly().catch((err) => {
             const error = err instanceof Error ? err : new Error(String(err));
             this.log?.error(error);
         });

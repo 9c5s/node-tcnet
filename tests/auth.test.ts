@@ -1034,3 +1034,126 @@ describe("sendAuthCommandOnly 連続失敗カウンタ", () => {
         expect(client.getSessionToken()).toBe(0xcafebabe);
     });
 });
+
+describe("pending状態でのcmd=1再受信 (初回認証中の反応型プロトコル)", () => {
+    function createAdapter(ip: string) {
+        return {
+            name: "test0",
+            addresses: [
+                {
+                    address: ip,
+                    netmask: "255.255.255.0",
+                    family: "IPv4" as const,
+                    mac: "00:00:00:00:00:00",
+                    internal: false,
+                    cidr: `${ip}/24`,
+                },
+            ],
+        };
+    }
+
+    function makePendingClient(logger?: TCNetLogger): AuthSequenceTestClient {
+        const client = new AuthSequenceTestClient();
+        client.setSessionToken(0xb3fe319e);
+        client.setAuthState("pending");
+        client.setBridgeIsWindows(false);
+        client.setSelectedAdapter(createAdapter("192.168.0.10"));
+        client.setBroadcastAddress("255.255.255.255");
+        if (logger) {
+            client.setLogger(logger);
+        }
+        return client;
+    }
+
+    it("pending状態でcmd=1を再受信するとcmd=2のみが再送される", async () => {
+        const client = makePendingClient();
+        const sentBuffers: Buffer[] = [];
+        client.setBroadcastSocket({
+            send: vi.fn((buf: Buffer, _port: number, _addr: string, cb: (err: Error | null) => void) => {
+                sentBuffers.push(Buffer.from(buf));
+                cb(null);
+            }),
+        });
+
+        client.callHandleAuth(createAppDataPacket(1, 0xb3fe319e));
+        await flushAsync();
+
+        expect(sentBuffers.length).toBe(1);
+        expect(sentBuffers[0][APPDATA_CMD_OFFSET]).toBe(2);
+        expect(client.authenticationState).toBe("pending");
+        expect(client.getSessionToken()).toBe(0xb3fe319e);
+    });
+
+    it("pending中の連続cmd=1で毎回cmd=2を応答する (Bridge flood対応)", async () => {
+        const client = makePendingClient();
+        const sentBuffers: Buffer[] = [];
+        client.setBroadcastSocket({
+            send: vi.fn((buf: Buffer, _port: number, _addr: string, cb: (err: Error | null) => void) => {
+                sentBuffers.push(Buffer.from(buf));
+                cb(null);
+            }),
+        });
+
+        for (let i = 0; i < 10; i++) {
+            client.callHandleAuth(createAppDataPacket(1, 0xb3fe319e));
+        }
+        await flushAsync();
+
+        expect(sentBuffers.length).toBe(10);
+        for (const buf of sentBuffers) {
+            expect(buf[APPDATA_CMD_OFFSET]).toBe(2);
+        }
+        expect(client.authenticationState).toBe("pending");
+        expect(client.getSessionToken()).toBe(0xb3fe319e);
+    });
+
+    it("pending中のcmd=1でtokenが変わった場合はsessionTokenを更新する", async () => {
+        const client = makePendingClient();
+        const sentBuffers: Buffer[] = [];
+        client.setBroadcastSocket({
+            send: vi.fn((buf: Buffer, _port: number, _addr: string, cb: (err: Error | null) => void) => {
+                sentBuffers.push(Buffer.from(buf));
+                cb(null);
+            }),
+        });
+
+        client.callHandleAuth(createAppDataPacket(1, 0xcafebabe));
+        await flushAsync();
+
+        expect(client.getSessionToken()).toBe(0xcafebabe);
+        expect(sentBuffers.length).toBe(1);
+        const sentToken = sentBuffers[0].readUInt32LE(APPDATA_CMD_OFFSET + 4);
+        expect(sentToken).toBe(0xcafebabe);
+    });
+
+    it("pending中のcmd=1では初回シーケンス(sendAuthSequence)は呼ばれない", async () => {
+        const client = makePendingClient();
+        const sendSequenceMock = vi.fn().mockRejectedValue(new Error("should not be called"));
+        client.setSendAuthSequenceMock(sendSequenceMock);
+        client.setBroadcastSocket({
+            send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: (err: Error | null) => void) => {
+                cb(null);
+            }),
+        });
+
+        client.callHandleAuth(createAppDataPacket(1, 0xb3fe319e));
+        await flushAsync();
+
+        expect(sendSequenceMock).not.toHaveBeenCalled();
+    });
+
+    it("pending中のcmd=2送信失敗でもpending状態とsessionTokenは維持される", async () => {
+        const client = makePendingClient();
+        client.setBroadcastSocket({
+            send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: (err: Error | null) => void) => {
+                cb(new Error("send failed"));
+            }),
+        });
+
+        client.callHandleAuth(createAppDataPacket(1, 0xb3fe319e));
+        await flushAsync();
+
+        expect(client.authenticationState).toBe("pending");
+        expect(client.getSessionToken()).toBe(0xb3fe319e);
+    });
+});
