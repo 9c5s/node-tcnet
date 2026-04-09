@@ -14,6 +14,29 @@ export const MASTER_RINFO: RemoteInfo = {
 };
 
 /**
+ * TCNetApplicationDataPacket の cmd バイト位置
+ *
+ * ManagementHeader (24 byte) + AppData body (dest + subType + field1 + field2 +
+ * fixedValue 6 bytes + 2 bytes subType の後 + padding) の後に cmd が配置される。
+ * 送信バッファから cmd の値を直接読み取る際に使用する。
+ */
+export const APPDATA_CMD_OFFSET = 42;
+
+/**
+ * microtask キューを複数回フラッシュして非同期チェーンの完了を待つ
+ *
+ * handleAuthPacket 内の `.then()/.catch()` チェーンや、sendAuthSequence/
+ * sendAuthCommandOnly が返す Promise の解決を決定的に待つために使用する。
+ * `vi.waitFor()` のポーリングに依存しないため、CI 環境でのフレイキーを回避できる。
+ * @param iterations - フラッシュする microtask の回数 (既定値は5回、通常のチェーンに十分)
+ */
+export async function flushAsync(iterations = 5): Promise<void> {
+    for (let i = 0; i < iterations; i++) {
+        await Promise.resolve();
+    }
+}
+
+/**
  * handleAuthPacket の動作検証用テストヘルパー
  *
  * sendAuthSequence をコンストラクタでモックし、実際のネットワーク操作を回避する。

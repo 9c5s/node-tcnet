@@ -3,7 +3,7 @@ import { fnv1aInt32, generateAuthPayload, DATA_HASH } from "../src/auth";
 import { TCNetApplicationDataPacket, TCNetErrorPacket, TCNetMessageType } from "../src/network";
 import { TCNetClient, TCNetConfiguration, type TCNetLogger } from "../src/tcnet";
 import { writeValidHeader, createHeader, isolateXteaEnv } from "./helpers";
-import { AuthTestClient, AuthSequenceTestClient } from "./auth-test-helpers";
+import { AuthTestClient, AuthSequenceTestClient, flushAsync, APPDATA_CMD_OFFSET } from "./auth-test-helpers";
 
 isolateXteaEnv();
 
@@ -459,11 +459,10 @@ describe("sendAuthSequence 状態リセット", () => {
         client.setSessionToken(null);
         client.callHandleAuth(appData);
 
-        // catchハンドラは非同期なのでtick待ち
-        await vi.waitFor(() => {
-            expect(client.authenticationState).toBe("none");
-            expect(client.getSessionToken()).toBeNull();
-        });
+        // handleAuthPacket 内の sendAuthSequence().catch() チェーンを microtask flush で待つ
+        await flushAsync();
+        expect(client.authenticationState).toBe("none");
+        expect(client.getSessionToken()).toBeNull();
     });
 
     it("状態リセット後に再度cmd=1を受信すると認証を再試行できる", async () => {
@@ -475,18 +474,16 @@ describe("sendAuthSequence 状態リセット", () => {
         // 1回目: cmd=1を受信 → sendAuthSequence → xteaCiphertext不正でリセット
         const appData1 = createAppDataPacket(1, 0xaabbccdd);
         client.callHandleAuth(appData1);
-        await vi.waitFor(() => {
-            expect(client.authenticationState).toBe("none");
-        });
+        await flushAsync();
+        expect(client.authenticationState).toBe("none");
         expect(client.getSessionToken()).toBeNull();
 
         // 2回目: 再度cmd=1を受信 → 新しいトークンで再試行される
         const appData2 = createAppDataPacket(1, 0x11223344);
         client.callHandleAuth(appData2);
         // sendAuthSequenceが呼ばれてpendingになった後、xteaCiphertext不正でリセットされる
-        await vi.waitFor(() => {
-            expect(client.authenticationState).toBe("none");
-        });
+        await flushAsync();
+        expect(client.authenticationState).toBe("none");
         // リセット後なので再度受付可能な状態
         expect(client.getSessionToken()).toBeNull();
     });
@@ -576,9 +573,8 @@ describe("認証タイムアウト", () => {
             client.callHandleAuth(appData);
 
             // sendAuthSequenceが非同期でリセットするのを待つ
-            await vi.waitFor(() => {
-                expect(client.authenticationState).toBe("none");
-            });
+            await flushAsync();
+            expect(client.authenticationState).toBe("none");
         } finally {
             vi.useRealTimers();
         }
@@ -787,7 +783,7 @@ describe("sendAuthCommandOnly (authenticated状態でのcmd=1応答)", () => {
         // sendAuthSequence とは異なり hello + auth ではなく auth 1 つだけ
         expect(sentBuffers.length).toBe(1);
         // cmd byte はAppDataボディのoffset 42 (cmd=2)
-        expect(sentBuffers[0][42]).toBe(2);
+        expect(sentBuffers[0][APPDATA_CMD_OFFSET]).toBe(2);
     });
 
     it("sessionToken=nullのときは何もしない (authenticated状態を壊さない)", async () => {
@@ -818,11 +814,10 @@ describe("sendAuthCommandOnly (authenticated状態でのcmd=1応答)", () => {
         client.callHandleAuth(appData);
 
         // sendAuthCommandOnly は fire-and-forget なので microtask を回して完了待ち
-        await new Promise((r) => setImmediate(r));
-        await new Promise((r) => setImmediate(r));
+        await flushAsync();
 
         expect(sentBuffers.length).toBe(1);
-        expect(sentBuffers[0][42]).toBe(2);
+        expect(sentBuffers[0][APPDATA_CMD_OFFSET]).toBe(2);
         // state は authenticated のまま維持される
         expect(client.authenticationState).toBe("authenticated");
     });
@@ -871,13 +866,6 @@ describe("sendAuthCommandOnly 連続失敗カウンタ", () => {
             client.setLogger(logger);
         }
         return client;
-    }
-
-    // sendAuthCommandOnly の非同期catch/thenが完了するのを待つ
-    // promise then の後にさらに state 遷移するため複数 microtask を回す
-    async function flushAsync(): Promise<void> {
-        await new Promise((r) => setImmediate(r));
-        await new Promise((r) => setImmediate(r));
     }
 
     it("失敗後に成功するとauthResponseFailureCountが0にリセットされる", async () => {
