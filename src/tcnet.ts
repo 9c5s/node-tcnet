@@ -95,6 +95,8 @@ export class TCNetClient extends EventEmitter {
     protected sessionToken: number | null = null;
     private authTimeoutId: NodeJS.Timeout | null = null;
     protected bridgeIsWindows: boolean | null = null;
+    // detectBridgeIsWindows の in-flight Promise を保持し並行呼び出しを single-flight 化する
+    private bridgeOsDetectionPromise: Promise<boolean> | null = null;
     // authenticated 状態での sendAuthCommandOnly 連続失敗回数を記録する
     protected authResponseFailureCount: number = 0;
     // 連続失敗がこの閾値に到達したら resetAuthSession で再認証を促す
@@ -816,11 +818,29 @@ export class TCNetClient extends EventEmitter {
      * WindowsのデフォルトTTLは128、macOS/LinuxのデフォルトTTLは64であるため、
      * 同一LAN (0-1ホップ) ではこの閾値で正確に判定できる。
      * 結果はインスタンス変数にキャッシュし、セッション中1回だけ検出する。
+     *
+     * 連続 cmd=1 flood 等で並行呼び出しが起きた場合は、in-flight Promise を
+     * 共有する single-flight パターンにより ping の重複起動を防ぐ。
      * @returns Windowsならtrue、それ以外ならfalse
      */
     protected async detectBridgeIsWindows(): Promise<boolean> {
+        // キャッシュヒットは in-flight 判定より優先する
         if (this.bridgeIsWindows !== null) return this.bridgeIsWindows;
+        // in-flight Promise がある場合は同じ Promise を共有する
+        if (this.bridgeOsDetectionPromise) return this.bridgeOsDetectionPromise;
 
+        this.bridgeOsDetectionPromise = this.performBridgeOsDetection().finally(() => {
+            this.bridgeOsDetectionPromise = null;
+        });
+        return this.bridgeOsDetectionPromise;
+    }
+
+    /**
+     * detectBridgeIsWindows の本体ロジック。
+     * single-flight 制御とは分離してあるため、直接呼び出すべきではない。
+     * @returns Windowsならtrue、それ以外ならfalse
+     */
+    private async performBridgeOsDetection(): Promise<boolean> {
         const bridgeIp = this.server?.address;
         if (!bridgeIp) {
             // serverが未設定の場合はキャッシュせず、次回の呼び出しで再検出を許可する
@@ -911,13 +931,19 @@ export class TCNetClient extends EventEmitter {
     /**
      * 認証セッションを初期状態にリセットする
      *
-     * _authState/sessionToken/bridgeIsWindows/authResponseFailureCount/authTimeoutId を
-     * 全て初期値に戻す。Bridge からの次の cmd=1 を受信すれば再度初回認証フローに入る。
+     * _authState/sessionToken/authResponseFailureCount/authTimeoutId を
+     * 初期値に戻し、Bridge からの次の cmd=1 で再度初回認証フローに入れる
+     * 状態へ戻す。bridgeIsWindows は既定でリセットされるが、Bridge の
+     * 物理端末が変わらないと判断できる場合 (連続送信失敗の閾値到達等) は
+     * preserveBridgeOs=true で保持することで無駄な再 ping を避けられる。
+     * @param preserveBridgeOs - true の場合は bridgeIsWindows キャッシュを保持する
      */
-    protected resetAuthSession(): void {
+    protected resetAuthSession(preserveBridgeOs = false): void {
         this._authState = "none";
         this.sessionToken = null;
-        this.bridgeIsWindows = null;
+        if (!preserveBridgeOs) {
+            this.bridgeIsWindows = null;
+        }
         // セッションそのものをリセットするため、連続失敗カウンタも 0 に戻す
         this.authResponseFailureCount = 0;
         if (this.authTimeoutId) {
@@ -1005,14 +1031,18 @@ export class TCNetClient extends EventEmitter {
      * - state 遷移を伴わない (Error 応答は handleAuthPacket の "pending" gate で
      *   弾かれるが、ここでは authenticated 状態での "continuation" として扱うため
      *   状態変更は不要)
+     * @returns 実際に cmd=2 を送信した場合は true、ガード失敗で送信しなかった場合は false
      */
-    protected async sendAuthCommandOnly(): Promise<void> {
+    protected async sendAuthCommandOnly(): Promise<boolean> {
         const payload = await this.prepareAuthPayload();
-        if (!payload) return;
+        // prepareAuthPayload が null を返した場合は送信していない旨を呼び出し元に伝える
+        // (silent に成功扱いされると連続失敗カウンタのリセット判定が誤る)
+        if (!payload) return false;
 
         // prepareAuthPayload が non-null を返した時点で sessionToken/broadcastSocket は非 null である
         const auth = this.createAppDataPacket(2, this.sessionToken!, payload);
         await this.sendPacket(auth, this.broadcastSocket!, TCNET_BROADCAST_PORT, this.config.broadcastAddress);
+        return true;
     }
 
     /**
@@ -1083,20 +1113,24 @@ export class TCNetClient extends EventEmitter {
         }
         this.log?.debug("cmd=1 in authenticated state, responding with cmd=2");
         this.sendAuthCommandOnly()
-            .then(() => {
-                // 成功時は連続失敗カウンタを 0 に戻す
-                this.authResponseFailureCount = 0;
+            .then((sent) => {
+                // 実際に送信された場合のみ連続失敗カウンタを 0 に戻す
+                // (prepareAuthPayload がガード失敗で false を返した場合はノーオペ)
+                if (sent) {
+                    this.authResponseFailureCount = 0;
+                }
             })
             .catch((err) => {
                 const error = err instanceof Error ? err : new Error(String(err));
                 this.log?.error(error);
                 this.authResponseFailureCount++;
                 if (this.authResponseFailureCount >= TCNetClient.AUTH_RESPONSE_FAILURE_THRESHOLD) {
-                    // 閾値に到達したらセッションをリセットして再認証フローへ戻す
+                    // 閾値到達時はセッションをリセットして再認証フローへ戻す
+                    // bridgeIsWindows は Bridge 物理端末の OS 情報なので保持し無駄な再 ping を避ける
                     this.log?.warn(
                         `Auth response failed ${this.authResponseFailureCount} times consecutively, resetting session`,
                     );
-                    this.resetAuthSession();
+                    this.resetAuthSession(true);
                 }
             });
     }

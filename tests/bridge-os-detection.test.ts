@@ -249,4 +249,32 @@ describe("detectBridgeIsWindows", () => {
             expect.any(Function),
         );
     });
+
+    it("並行呼び出しで in-flight Promise を共有しpingは1回だけ実行される", async () => {
+        // Bridge の cmd=1 flood 等で短時間に複数の detectBridgeIsWindows が
+        // 呼ばれても、in-flight Promise を共有することで ping プロセスの
+        // 重複起動を防ぐ (single-flight パターンの検証)
+        platformMock.mockReturnValue("win32");
+        // ping の応答を遅延させて並行性を確保する
+        execFileMock.mockImplementation(
+            (_cmd: string, _args: string[], _opts: object, cb: (err: Error | null, stdout: string) => void) => {
+                setTimeout(() => cb(null, "Reply from 192.168.0.100: bytes=32 time<1ms TTL=128\n"), 10);
+            },
+        );
+        const client = new BridgeOsTestClient();
+        client.setSelectedAdapter(createAdapter("192.168.0.10"));
+
+        // 3 つの並行呼び出しを発行する
+        const [r1, r2, r3] = await Promise.all([
+            client.callDetectBridgeIsWindows(),
+            client.callDetectBridgeIsWindows(),
+            client.callDetectBridgeIsWindows(),
+        ]);
+
+        // 全て同じ結果を返し、ping は 1 回しか実行されていないこと
+        expect(r1).toBe(true);
+        expect(r2).toBe(true);
+        expect(r3).toBe(true);
+        expect(execFileMock).toHaveBeenCalledTimes(1);
+    });
 });

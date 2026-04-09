@@ -979,6 +979,30 @@ describe("sendAuthCommandOnly 連続失敗カウンタ", () => {
         expect(client.getSessionToken()).toBeNull();
         // resetAuthSession はカウンタも 0 に戻す
         expect(client.getAuthResponseFailureCount()).toBe(0);
+        // 部分リセットなので bridgeIsWindows キャッシュは保持される (無駄な再 ping を避ける)
+        expect(client.getBridgeIsWindows()).toBe(false);
+    });
+
+    it("prepareAuthPayloadのガード失敗時はauthResponseFailureCountが変化しない", async () => {
+        // Arrange: _selectedAdapter を null にすると prepareAuthPayload が
+        // clientIp 取得に失敗して null を返す (実送信は行われない)
+        const client = makeClient();
+        client.setSelectedAdapter(null);
+        client.setAuthResponseFailureCount(1);
+        const send = vi.fn((_buf: Buffer, _port: number, _addr: string, cb: (err: Error | null) => void) => {
+            cb(null);
+        });
+        client.setBroadcastSocket({ send });
+
+        // Act
+        const appData = createAppDataPacket(1, 0xb3fe319e);
+        client.callHandleAuth(appData);
+        await flushAsync();
+
+        // Assert: 送信されていないので failureCount は変化しない (リセットも増加もしない)
+        expect(send).not.toHaveBeenCalled();
+        expect(client.getAuthResponseFailureCount()).toBe(1);
+        expect(client.authenticationState).toBe("authenticated");
     });
 
     it("authenticated状態で異なるtokenのcmd=1を受信するとlogger.warnが呼ばれる", async () => {

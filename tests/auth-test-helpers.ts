@@ -128,7 +128,7 @@ export class AuthSequenceTestClient extends TCNetClient {
         return this.sendAuthSequence();
     }
 
-    public callSendAuthCommandOnly(): Promise<void> {
+    public callSendAuthCommandOnly(): Promise<boolean> {
         return this.sendAuthCommandOnly();
     }
 
