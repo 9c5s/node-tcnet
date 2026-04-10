@@ -282,11 +282,18 @@ export class TCNetClient extends EventEmitter {
         }
 
         const closePromises: Promise<void>[] = [];
+        const closedSockets = new Set<Socket>();
         for (const socket of this.broadcastSockets.values()) {
-            closePromises.push(closeSocket(socket));
+            if (!closedSockets.has(socket)) {
+                closedSockets.add(socket);
+                closePromises.push(closeSocket(socket));
+            }
         }
         for (const socket of this.timestampSockets.values()) {
-            closePromises.push(closeSocket(socket));
+            if (!closedSockets.has(socket)) {
+                closedSockets.add(socket);
+                closePromises.push(closeSocket(socket));
+            }
         }
         this.broadcastSockets.clear();
         this.timestampSockets.clear();
@@ -525,6 +532,16 @@ export class TCNetClient extends EventEmitter {
                             this.connectedHandler = null;
                         }
                     } else if (this.connected) {
+                        // 選択済みアダプタのサブネット外からのMasterを無視する
+                        if (this._selectedAdapter) {
+                            const ipv4 = findIPv4Address(this._selectedAdapter);
+                            if (ipv4) {
+                                const mask = ipToNumber(ipv4.netmask);
+                                const localNet = ipToNumber(ipv4.address) & mask;
+                                const remoteNet = ipToNumber(rinfo.address) & mask;
+                                if (localNet !== remoteNet) return;
+                            }
+                        }
                         // 確定後: 従来通りserver更新
                         if (this.server?.address !== rinfo.address) {
                             this.bridgeIsWindows = null;

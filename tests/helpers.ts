@@ -43,6 +43,13 @@ export class TestTCNetClient extends TCNetClient {
     public simulateConnected(): void {
         (this as any).connected = true;
     }
+    public simulateBroadcast(
+        msg: Buffer,
+        rinfo = { address: "127.0.0.1", port: 60000, family: "IPv4" as const, size: msg.length },
+        adapterName?: string,
+    ): void {
+        (this as any).receiveBroadcast(msg, rinfo, adapterName);
+    }
 }
 
 /**
