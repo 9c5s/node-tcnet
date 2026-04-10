@@ -1,6 +1,24 @@
 import { networkInterfaces } from "os";
 
 /**
+ * IPv4アドレス文字列を32bit数値に変換する
+ * @param ip - IPv4アドレス文字列(例: "192.168.0.1")
+ * @returns 32bit数値
+ * @throws {Error} 不正なIPv4形式(オクテット数不一致、非整数、範囲外)の場合
+ */
+export function ipToNumber(ip: string): number {
+    const segments = ip.split(".");
+    if (segments.length !== 4 || segments.some((s) => s === "" || !/^\d+$/.test(s))) {
+        throw new Error(`Invalid IPv4 address: ${ip}`);
+    }
+    const parts = segments.map(Number);
+    if (parts.some((p) => p > 255)) {
+        throw new Error(`Invalid IPv4 address: ${ip}`);
+    }
+    return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+}
+
+/**
  * IPv4アドレスとサブネットマスクからブロードキャストアドレスを計算する
  * @param address - IPv4アドレス文字列
  * @param netmask - サブネットマスク文字列
@@ -74,6 +92,19 @@ export interface NetworkAdapterInfo {
  */
 export function findIPv4Address(adapter: NetworkAdapterInfo): NetworkAdapterAddress | undefined {
     return adapter.addresses.find((a) => a.family === "IPv4" && !a.internal);
+}
+
+/**
+ * クラスタデータの終了位置を算出する
+ * clusterSizeが0の場合(Fileパケット)はバッファ末尾を返す
+ * @param bufferLength - バッファ全体の長さ
+ * @param dataStart - データ開始オフセット
+ * @param clusterSize - クラスタサイズ (0の場合はバッファ末尾)
+ * @returns データ終了位置
+ */
+export function getClusterEnd(bufferLength: number, dataStart: number, clusterSize: number): number {
+    if (dataStart >= bufferLength) return bufferLength;
+    return clusterSize > 0 ? Math.min(dataStart + clusterSize, bufferLength) : bufferLength;
 }
 
 /**

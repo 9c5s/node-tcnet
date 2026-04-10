@@ -298,7 +298,7 @@ describe("switchAdapter() 切り替えロジック", () => {
 
         const adapterName = getFirstNonLoopbackAdapter();
         const switchPromise = client.switchAdapter(adapterName).catch(() => {});
-        await expect(pendingPromise).rejects.toThrow("Connection switching");
+        await expect(pendingPromise).rejects.toThrow("Disconnected");
         await switchPromise;
     });
 

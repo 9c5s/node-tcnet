@@ -1,4 +1,4 @@
-import { assert } from "./utils";
+import { assert, getClusterEnd } from "./utils";
 import type {
     ArtworkData,
     CueData,
@@ -630,22 +630,25 @@ export class TCNetDataPacketCUE extends TCNetDataPacket {
     /** バッファからパケットデータを読み取る */
     read(): void {
         const loopInTime = this.buffer.readUInt32LE(42);
-        const loopOutTime = this.buffer.readUInt32LE(46);
+        // byte 46-49 (Loop OUT Time) はCUE 1開始(byte 47)と重複するため読み取らない
+        // CUE 1にデータがあるとloopOutTimeは汚染された値になる
         const cues: CuePoint[] = [];
-        // 仕様書にはCUE 1開始を byte 47 と記載しているが、
-        // Loop OUT Time (byte 46-49) と重複するため仕様書の誤記。
-        // 実機検証に基づき byte 50 を採用。
-        const cueStart = 50;
+        const cueStart = 47;
         for (let i = 0; i < 18; i++) {
             const offset = cueStart + i * 22;
             if (offset + 22 > this.buffer.length) break;
             const type = this.buffer.readUInt8(offset);
-            if (type === 0) continue;
+            const inTime = this.buffer.readUInt32LE(offset + 2);
+            const outTime = this.buffer.readUInt32LE(offset + 6);
+            // BridgeはTYPEフィールドを0で送信する場合がある
+            // type=0かつinTime/outTime両方0のエントリのみスキップする
+            // type有効値(>=1)でinTime/outTime=0のケース(トラック先頭CUE)は保持する
+            if (type === 0 && inTime === 0 && outTime === 0) continue;
             cues.push({
                 index: i + 1,
                 type,
-                inTime: this.buffer.readUInt32LE(offset + 2),
-                outTime: this.buffer.readUInt32LE(offset + 6),
+                inTime,
+                outTime,
                 color: {
                     r: this.buffer.readUInt8(offset + 11),
                     g: this.buffer.readUInt8(offset + 12),
@@ -653,7 +656,7 @@ export class TCNetDataPacketCUE extends TCNetDataPacket {
                 },
             });
         }
-        this.data = { loopInTime, loopOutTime, cues };
+        this.data = { loopInTime, cues };
     }
 
     /** パケットデータをバッファに書き込む */
@@ -909,7 +912,7 @@ export class TCNetDataPacketArtwork extends TCNetDataPacket {
             return;
         }
         const clusterSize = this.buffer.readUInt32LE(38);
-        const end = Math.min(dataStart + clusterSize, this.buffer.length);
+        const end = getClusterEnd(this.buffer.length, dataStart, clusterSize);
         this.data = { jpeg: Buffer.from(this.buffer.slice(dataStart, end)) };
     }
 
@@ -918,6 +921,11 @@ export class TCNetDataPacketArtwork extends TCNetDataPacket {
      * @param assembled - 結合済みバッファ
      */
     readAssembled(assembled: Buffer): void {
+        // JPEG SOIマーカー(0xFF 0xD8)が存在しないデータは不正とみなす
+        if (assembled.length < 2 || assembled[0] !== 0xff || assembled[1] !== 0xd8) {
+            this.data = null;
+            return;
+        }
         this.data = { jpeg: Buffer.from(assembled) };
     }
 

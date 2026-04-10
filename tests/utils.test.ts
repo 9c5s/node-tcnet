@@ -10,7 +10,14 @@ vi.mock("os", async () => {
 });
 
 import { networkInterfaces } from "os";
-import { assert, interfaceAddress, findIPv4Address, listNetworkAdapters } from "../src/utils";
+import {
+    assert,
+    interfaceAddress,
+    findIPv4Address,
+    listNetworkAdapters,
+    ipToNumber,
+    getClusterEnd,
+} from "../src/utils";
 import type { NetworkAdapterInfo } from "../src/utils";
 
 describe("assert", () => {
@@ -53,6 +60,78 @@ describe("listNetworkAdapters", () => {
             expect(addr).toHaveProperty("internal");
             expect(addr).toHaveProperty("cidr");
         }
+    });
+});
+
+describe("listNetworkAdapters (mock)", () => {
+    afterEach(() => {
+        vi.mocked(networkInterfaces).mockRestore();
+    });
+
+    it("IPv4/IPv6混在のアダプタが正しく返る", () => {
+        vi.mocked(networkInterfaces).mockReturnValue({
+            eth0: [
+                {
+                    address: "192.168.0.10",
+                    netmask: "255.255.255.0",
+                    family: "IPv4",
+                    mac: "aa:bb:cc:dd:ee:ff",
+                    internal: false,
+                    cidr: "192.168.0.10/24",
+                },
+                {
+                    address: "fe80::1",
+                    netmask: "ffff:ffff:ffff:ffff::",
+                    family: "IPv6",
+                    mac: "aa:bb:cc:dd:ee:ff",
+                    internal: false,
+                    cidr: "fe80::1/64",
+                    scopeid: 1,
+                },
+            ],
+        });
+        const adapters = listNetworkAdapters();
+        expect(adapters).toHaveLength(1);
+        expect(adapters[0].addresses).toHaveLength(2);
+        expect(adapters[0].addresses[0].family).toBe("IPv4");
+        expect(adapters[0].addresses[1].family).toBe("IPv6");
+    });
+
+    it("undefinedアドレスのインタフェースはスキップする", () => {
+        vi.mocked(networkInterfaces).mockReturnValue({
+            eth0: undefined as any,
+            eth1: [
+                {
+                    address: "10.0.0.1",
+                    netmask: "255.0.0.0",
+                    family: "IPv4",
+                    mac: "00:00:00:00:00:00",
+                    internal: false,
+                    cidr: "10.0.0.1/8",
+                },
+            ],
+        });
+        const adapters = listNetworkAdapters();
+        expect(adapters).toHaveLength(1);
+        expect(adapters[0].name).toBe("eth1");
+    });
+
+    it("internalなアドレスも含めて返す(フィルタはfindIPv4Addressの責務)", () => {
+        vi.mocked(networkInterfaces).mockReturnValue({
+            lo: [
+                {
+                    address: "127.0.0.1",
+                    netmask: "255.0.0.0",
+                    family: "IPv4",
+                    mac: "00:00:00:00:00:00",
+                    internal: true,
+                    cidr: "127.0.0.1/8",
+                },
+            ],
+        });
+        const adapters = listNetworkAdapters();
+        expect(adapters).toHaveLength(1);
+        expect(adapters[0].addresses[0].internal).toBe(true);
     });
 });
 
@@ -129,6 +208,59 @@ describe("interfaceAddress", () => {
             ],
         });
         expect(() => interfaceAddress("eth0")).toThrow("does not have IPv4 address");
+    });
+});
+
+describe("ipToNumber", () => {
+    it("0.0.0.0 は 0 を返す", () => {
+        expect(ipToNumber("0.0.0.0")).toBe(0);
+    });
+
+    it("255.255.255.255 は 0xFFFFFFFF を返す", () => {
+        expect(ipToNumber("255.255.255.255")).toBe(0xffffffff);
+    });
+
+    it("192.168.0.130 を正しく変換する", () => {
+        // 0xC0=192, 0xA8=168, 0x00=0, 0x82=130
+        expect(ipToNumber("192.168.0.130")).toBe(0xc0a80082);
+    });
+
+    it("10.0.0.1 を正しく変換する", () => {
+        // 0x0A=10, 0x00=0, 0x00=0, 0x01=1
+        expect(ipToNumber("10.0.0.1")).toBe(0x0a000001);
+    });
+
+    it("同一サブネットの判定に使用できる", () => {
+        const mask = ipToNumber("255.255.255.0");
+        const a = ipToNumber("192.168.0.10") & mask;
+        const b = ipToNumber("192.168.0.130") & mask;
+        const c = ipToNumber("10.0.0.1") & mask;
+        expect(a).toBe(b);
+        expect(a).not.toBe(c);
+    });
+
+    it("空セグメント('192.168..1')でエラーを投げる", () => {
+        expect(() => ipToNumber("192.168..1")).toThrow("Invalid IPv4 address");
+    });
+
+    it("先頭ドット('.0.0.1')でエラーを投げる", () => {
+        expect(() => ipToNumber(".0.0.1")).toThrow("Invalid IPv4 address");
+    });
+
+    it("範囲外オクテット('256.0.0.0')でエラーを投げる", () => {
+        expect(() => ipToNumber("256.0.0.0")).toThrow("Invalid IPv4 address");
+    });
+
+    it("非数値('abc.0.0.1')でエラーを投げる", () => {
+        expect(() => ipToNumber("abc.0.0.1")).toThrow("Invalid IPv4 address");
+    });
+
+    it("空文字列でエラーを投げる", () => {
+        expect(() => ipToNumber("")).toThrow("Invalid IPv4 address");
+    });
+
+    it("オクテット不足('192.168.0')でエラーを投げる", () => {
+        expect(() => ipToNumber("192.168.0")).toThrow("Invalid IPv4 address");
     });
 });
 
@@ -221,5 +353,28 @@ describe("findIPv4Address", () => {
             addresses: [],
         };
         expect(findIPv4Address(adapter)).toBeUndefined();
+    });
+});
+
+describe("getClusterEnd", () => {
+    it("clusterSize>0の場合、dataStart+clusterSizeを返す", () => {
+        expect(getClusterEnd(100, 42, 50)).toBe(92);
+    });
+
+    it("clusterSize=0の場合、bufferLengthを返す", () => {
+        expect(getClusterEnd(100, 42, 0)).toBe(100);
+    });
+
+    it("dataStart+clusterSizeがbufferLengthを超える場合、bufferLengthを返す", () => {
+        expect(getClusterEnd(50, 42, 100)).toBe(50);
+    });
+
+    it("clusterSizeが負の場合、bufferLengthを返す", () => {
+        expect(getClusterEnd(100, 42, -1)).toBe(100);
+    });
+
+    it("dataStartがbufferLength以上の場合、bufferLengthを返す", () => {
+        expect(getClusterEnd(42, 42, 10)).toBe(42);
+        expect(getClusterEnd(30, 42, 10)).toBe(30);
     });
 });

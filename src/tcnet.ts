@@ -4,7 +4,14 @@ import { execFile } from "child_process";
 import { platform } from "os";
 import * as nw from "./network";
 import { MultiPacketAssembler } from "./multi-packet";
-import { interfaceAddress, listNetworkAdapters, findIPv4Address, type NetworkAdapterInfo } from "./utils";
+import {
+    interfaceAddress,
+    listNetworkAdapters,
+    findIPv4Address,
+    ipToNumber,
+    getClusterEnd,
+    type NetworkAdapterInfo,
+} from "./utils";
 import { generateAuthPayload, type AuthState } from "./auth";
 
 const TCNET_BROADCAST_PORT = 60000;
@@ -16,6 +23,12 @@ type STORED_REQUEST = {
     reject: (reason?: unknown) => void;
     timeout: NodeJS.Timeout;
     assembler?: MultiPacketAssembler;
+    // FileパケットでtotalPackets=0の場合、パケットを順次蓄積しタイムアウトでアセンブルする
+    fileChunks?: Buffer[];
+    /** fileChunks蓄積済みバイト数。maxFileChunkBytes超過時にrejectする */
+    fileChunksSize?: number;
+    // fileChunks蓄積の全体上限タイマー (requestTimeoutで打ち切る)
+    fileChunksDeadline?: NodeJS.Timeout;
 };
 
 const MULTI_PACKET_TYPES: Set<number> = new Set([
@@ -50,6 +63,13 @@ export class TCNetConfiguration {
     broadcastAddress = "255.255.255.255";
     broadcastListeningAddress = "";
     requestTimeout = 2000;
+    /**
+     * totalPackets=0のFileパケットを蓄積する際、最後のパケット到着からアセンブル完了とみなすまでの待機時間(ミリ秒)
+     * 200msはBridge実機での連続Fileパケット送信間隔(数msから数十ms)を観測して決定した値であり、安全マージンを確保している
+     */
+    fileCollectionTimeout = 200;
+    /** fileChunks蓄積の最大バイト数。超過時はrejectする */
+    maxFileChunkBytes = 10 * 1024 * 1024; // 10MB
     detectionTimeout = 5000;
     switchRetryCount = 3;
     switchRetryInterval = 1000;
@@ -192,24 +212,32 @@ export class TCNetClient extends EventEmitter {
             this.unicastSocket = createSocket({ type: "udp4", reuseAddr: false }, this.receiveUnicast.bind(this));
             await this.bindSocket(this.unicastSocket, this.config.unicastPort, "0.0.0.0");
 
-            // 各アダプタにbroadcast/timestampソケットを作成
+            // アダプタマップを構築する
             for (const adapter of adapters) {
                 const ipv4 = findIPv4Address(adapter);
                 if (!ipv4) continue;
-
                 this.adapterMap.set(adapter.name, adapter);
+            }
 
-                const bSocket = createSocket({ type: "udp4", reuseAddr: true }, (msg: Buffer, rinfo: RemoteInfo) =>
-                    this.receiveBroadcast(msg, rinfo, adapter.name),
-                );
-                await this.bindSocket(bSocket, TCNET_BROADCAST_PORT, ipv4.address);
-                bSocket.setBroadcast(true);
-                this.broadcastSockets.set(adapter.name, bSocket);
+            // ブロードキャストソケット (1つ、0.0.0.0にbind)
+            // 送信元IPからアダプタを逆引きする
+            const detectBSocket = createSocket({ type: "udp4", reuseAddr: true }, (msg: Buffer, rinfo: RemoteInfo) => {
+                const resolvedName = this.resolveAdapterByRemoteAddress(rinfo.address);
+                this.receiveBroadcast(msg, rinfo, resolvedName ?? undefined);
+            });
+            await this.bindSocket(detectBSocket, TCNET_BROADCAST_PORT, this.config.broadcastListeningAddress);
+            detectBSocket.setBroadcast(true);
+            // 全アダプタ名で同じソケットを共有する (convergeToAdapter時のclose対象)
+            for (const name of this.adapterMap.keys()) {
+                this.broadcastSockets.set(name, detectBSocket);
+            }
 
-                const tSocket = createSocket({ type: "udp4", reuseAddr: true }, this.receiveTimestamp.bind(this));
-                await this.bindSocket(tSocket, TCNET_TIMESTAMP_PORT, ipv4.address);
-                tSocket.setBroadcast(true);
-                this.timestampSockets.set(adapter.name, tSocket);
+            // タイムスタンプソケット (1つ、0.0.0.0にbind)
+            const detectTSocket = createSocket({ type: "udp4", reuseAddr: true }, this.receiveTimestamp.bind(this));
+            await this.bindSocket(detectTSocket, TCNET_TIMESTAMP_PORT, this.config.broadcastListeningAddress);
+            detectTSocket.setBroadcast(true);
+            for (const name of this.adapterMap.keys()) {
+                this.timestampSockets.set(name, detectTSocket);
             }
         } catch (err) {
             await this.disconnectSockets();
@@ -266,12 +294,28 @@ export class TCNetClient extends EventEmitter {
             rejectHandler(new Error("Disconnected"));
         }
 
+        // 保留中のリクエストをrejectしタイマーを解放する
+        for (const [, req] of this.requests) {
+            clearTimeout(req.timeout);
+            if (req.fileChunksDeadline) clearTimeout(req.fileChunksDeadline);
+            req.assembler?.reset();
+            req.reject(new Error("Disconnected"));
+        }
+        this.requests.clear();
+
         const closePromises: Promise<void>[] = [];
+        const closedSockets = new Set<Socket>();
         for (const socket of this.broadcastSockets.values()) {
-            closePromises.push(closeSocket(socket));
+            if (!closedSockets.has(socket)) {
+                closedSockets.add(socket);
+                closePromises.push(closeSocket(socket));
+            }
         }
         for (const socket of this.timestampSockets.values()) {
-            closePromises.push(closeSocket(socket));
+            if (!closedSockets.has(socket)) {
+                closedSockets.add(socket);
+                closePromises.push(closeSocket(socket));
+            }
         }
         this.broadcastSockets.clear();
         this.timestampSockets.clear();
@@ -330,6 +374,57 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
+     * 送信元IPが選択済みアダプタと同一サブネット内かを判定する
+     * @param remoteAddress - 送信元IPv4アドレス
+     * @returns 同一サブネット内ならtrue。selectedAdapter未設定やIPv4なし、パース失敗時はtrue(安全側)
+     */
+    private isInSelectedSubnet(remoteAddress: string): boolean {
+        if (!this._selectedAdapter) return true;
+        const ipv4 = findIPv4Address(this._selectedAdapter);
+        if (!ipv4) return true;
+        try {
+            const mask = ipToNumber(ipv4.netmask);
+            const localNet = ipToNumber(ipv4.address) & mask;
+            const remoteNet = ipToNumber(remoteAddress) & mask;
+            return localNet === remoteNet;
+        } catch {
+            return true;
+        }
+    }
+
+    /**
+     * 送信元IPアドレスから対応するアダプタ名を逆引きする
+     * 同一サブネットに属するアダプタを返す
+     * @param remoteAddress - 送信元IPv4アドレス
+     * @returns アダプタ名。該当なしの場合はnull
+     */
+    private resolveAdapterByRemoteAddress(remoteAddress: string): string | null {
+        try {
+            const remoteNum = ipToNumber(remoteAddress);
+            let matchedName: string | null = null;
+            let matchedMaskBits = -1;
+            for (const [name, adapter] of this.adapterMap) {
+                const ipv4 = findIPv4Address(adapter);
+                if (!ipv4) continue;
+                const mask = ipToNumber(ipv4.netmask);
+                const localNet = ipToNumber(ipv4.address) & mask;
+                if ((remoteNum & mask) === localNet) {
+                    // 複数マッチ時はlongest prefix(最も具体的なサブネット)を優先する
+                    // VPN(/8) + LAN(/24) のような環境で LAN を正しく選択する
+                    const bits = Math.clz32(~mask >>> 0);
+                    if (bits > matchedMaskBits) {
+                        matchedName = name;
+                        matchedMaskBits = bits;
+                    }
+                }
+            }
+            return matchedName;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
      * Master検出時に該当アダプタに収束し、他のアダプタのソケットを閉じる
      * @param adapterName - 収束先のアダプタ名
      * @param rinfo - Master送信元情報
@@ -357,13 +452,23 @@ export class TCNetClient extends EventEmitter {
         this.broadcastSocket = this.broadcastSockets.get(adapterName) ?? null;
         this.timestampSocket = this.timestampSockets.get(adapterName) ?? null;
 
-        // 他アダプタのソケットを閉じる
+        // 他アダプタのソケットを閉じる (確定アダプタのソケットは保持する)
+        const keepSockets = new Set<Socket>();
+        if (this.broadcastSocket) keepSockets.add(this.broadcastSocket);
+        if (this.timestampSocket) keepSockets.add(this.timestampSocket);
+        const closed = new Set<Socket>();
         const closePromises: Promise<void>[] = [];
-        for (const [name, socket] of this.broadcastSockets) {
-            if (name !== adapterName) closePromises.push(closeSocket(socket));
+        for (const [, socket] of this.broadcastSockets) {
+            if (!keepSockets.has(socket) && !closed.has(socket)) {
+                closed.add(socket);
+                closePromises.push(closeSocket(socket));
+            }
         }
-        for (const [name, socket] of this.timestampSockets) {
-            if (name !== adapterName) closePromises.push(closeSocket(socket));
+        for (const [, socket] of this.timestampSockets) {
+            if (!keepSockets.has(socket) && !closed.has(socket)) {
+                closed.add(socket);
+                closePromises.push(closeSocket(socket));
+            }
         }
         this.broadcastSockets.clear();
         this.timestampSockets.clear();
@@ -394,11 +499,11 @@ export class TCNetClient extends EventEmitter {
         this.broadcastSocket = createSocket({ type: "udp4", reuseAddr: true }, (msg: Buffer, rinfo: RemoteInfo) =>
             this.receiveBroadcast(msg, rinfo),
         );
-        await this.bindSocket(this.broadcastSocket, TCNET_BROADCAST_PORT, ipv4.address);
+        await this.bindSocket(this.broadcastSocket, TCNET_BROADCAST_PORT, this.config.broadcastListeningAddress);
         this.broadcastSocket.setBroadcast(true);
 
         this.timestampSocket = createSocket({ type: "udp4", reuseAddr: true }, this.receiveTimestamp.bind(this));
-        await this.bindSocket(this.timestampSocket, TCNET_TIMESTAMP_PORT, ipv4.address);
+        await this.bindSocket(this.timestampSocket, TCNET_TIMESTAMP_PORT, this.config.broadcastListeningAddress);
         this.timestampSocket.setBroadcast(true);
 
         this.unicastSocket = createSocket({ type: "udp4", reuseAddr: false }, this.receiveUnicast.bind(this));
@@ -473,7 +578,8 @@ export class TCNetClient extends EventEmitter {
                         // 検出中 (connect()経由): アダプタ収束
                         this.convergeToAdapter(adapterName, rinfo, packet.nodeListenerPort);
                     } else if (!this.connected && !this.detectingAdapter) {
-                        // 単一アダプタ接続中 (connectToAdapter()経由): waitConnected解決
+                        // 単一アダプタ接続中: selectedAdapterのサブネット外からのMasterを無視する
+                        if (!this.isInSelectedSubnet(rinfo.address)) return;
                         this.server = rinfo;
                         this.server.port = packet.nodeListenerPort;
                         this.connected = true;
@@ -482,6 +588,8 @@ export class TCNetClient extends EventEmitter {
                             this.connectedHandler = null;
                         }
                     } else if (this.connected) {
+                        // 選択済みアダプタのサブネット外からのMasterを無視する
+                        if (!this.isInSelectedSubnet(rinfo.address)) return;
                         // 確定後: 従来通りserver更新
                         if (this.server?.address !== rinfo.address) {
                             this.bridgeIsWindows = null;
@@ -513,6 +621,91 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
+     * totalPackets=0のFileパケットを蓄積し、タイムアウトでアセンブルする
+     *
+     * fileCollectionTimeout (200ms) の無通信でアセンブル完了とみなす。
+     * requestTimeout を全体の上限タイマーとして設定し、パケットが来続けても
+     * 無限蓄積を防ぐ。上限到達時は不完全データとして reject する。
+     * @param key - リクエストキー
+     * @param pendingRequest - 保留中のリクエスト
+     * @param dataPacketClass - データパケットクラス
+     * @param msg - 受信バッファ
+     * @param mgmtHeader - 管理ヘッダー
+     * @param dataPacket - パース済みデータパケット
+     */
+    private handleFileChunkPacket(
+        key: string,
+        pendingRequest: STORED_REQUEST,
+        dataPacketClass: typeof nw.TCNetDataPacket,
+        msg: Buffer,
+        mgmtHeader: nw.TCNetManagementHeader,
+        dataPacket: nw.TCNetDataPacket,
+    ): void {
+        if (!pendingRequest.fileChunks) {
+            pendingRequest.fileChunks = [];
+            pendingRequest.fileChunksSize = 0;
+            // requestTimeoutを全体の上限タイマーとして設定する
+            // fileCollectionTimeoutのリセットでは影響を受けない
+            pendingRequest.fileChunksDeadline = setTimeout(() => {
+                if (this.requests.delete(key)) {
+                    clearTimeout(pendingRequest.timeout);
+                    pendingRequest.fileChunks = undefined;
+                    pendingRequest.assembler?.reset();
+                    pendingRequest.reject(new Error("Timeout while requesting data"));
+                }
+            }, this.config.requestTimeout);
+        }
+        // TCNetデータパケットヘッダー後のペイロード開始位置
+        const dataStart = 42;
+        if (msg.length > dataStart) {
+            // clusterSize: マルチパケットヘッダーのoffset 38 (4バイトLE)
+            const clusterSize = msg.readUInt32LE(38);
+            const end = getClusterEnd(msg.length, dataStart, clusterSize);
+            const chunk = Buffer.from(msg.slice(dataStart, end));
+            pendingRequest.fileChunksSize = (pendingRequest.fileChunksSize ?? 0) + chunk.length;
+            if (pendingRequest.fileChunksSize > this.config.maxFileChunkBytes) {
+                if (this.requests.delete(key)) {
+                    clearTimeout(pendingRequest.timeout);
+                    if (pendingRequest.fileChunksDeadline) clearTimeout(pendingRequest.fileChunksDeadline);
+                    pendingRequest.fileChunks = undefined;
+                    pendingRequest.assembler?.reset();
+                    pendingRequest.reject(new Error("File chunk size limit exceeded"));
+                }
+                return;
+            }
+            pendingRequest.fileChunks.push(chunk);
+        }
+        // fileCollectionTimeoutをリセットする (最後のパケットから200msで完了判定)
+        clearTimeout(pendingRequest.timeout);
+        pendingRequest.timeout = setTimeout(() => {
+            if (this.requests.delete(key)) {
+                if (pendingRequest.fileChunksDeadline) {
+                    clearTimeout(pendingRequest.fileChunksDeadline);
+                }
+                const assembled = Buffer.concat(pendingRequest.fileChunks!);
+                pendingRequest.fileChunks = undefined;
+                const finalPacket = new dataPacketClass();
+                finalPacket.buffer = msg;
+                finalPacket.header = mgmtHeader;
+                finalPacket.dataType = dataPacket.dataType;
+                finalPacket.layer = dataPacket.layer;
+                if ("readAssembled" in finalPacket && typeof finalPacket.readAssembled === "function") {
+                    finalPacket.readAssembled(assembled);
+                }
+                // readAssembled後にデータが不正(data=null)の場合はrejectする
+                if ("data" in finalPacket && finalPacket.data === null) {
+                    pendingRequest.reject(new Error("Assembled data is invalid"));
+                    return;
+                }
+                if (this.connected) {
+                    this.emit("data", finalPacket);
+                }
+                pendingRequest.resolve(finalPacket);
+            }
+        }, this.config.fileCollectionTimeout);
+    }
+
+    /**
      * ユニキャストソケットのデータグラム受信コールバック
      * @param msg - データグラムバッファ
      * @param rinfo - 送信元情報
@@ -537,35 +730,46 @@ export class TCNetClient extends EventEmitter {
 
                 if (pendingRequest && pendingRequest.assembler) {
                     // マルチパケット: アセンブラに蓄積
-                    const complete = pendingRequest.assembler.add(msg);
-
-                    if (complete) {
-                        // T8: アセンブル完了時のみ emit する (未完パケットは emit しない)
-                        const assembled = pendingRequest.assembler.assemble();
-                        const finalPacket = new dataPacketClass();
-                        finalPacket.buffer = msg;
-                        finalPacket.header = mgmtHeader;
-                        finalPacket.dataType = dataPacket.dataType;
-                        finalPacket.layer = dataPacket.layer;
-                        if ("readAssembled" in finalPacket && typeof finalPacket.readAssembled === "function") {
-                            finalPacket.readAssembled(assembled);
-                        }
-                        this.requests.delete(key);
-                        clearTimeout(pendingRequest.timeout);
-                        if (this.connected) {
-                            this.emit("data", finalPacket);
-                        }
-                        pendingRequest.resolve(finalPacket);
+                    const totalPackets = msg.readUInt32LE(30);
+                    const isFilePacket = packet instanceof nw.TCNetFilePacket;
+                    if (isFilePacket && (totalPackets === 0 || pendingRequest.fileChunks)) {
+                        this.handleFileChunkPacket(key, pendingRequest, dataPacketClass, msg, mgmtHeader, dataPacket);
                     } else {
-                        // パケット到着ごとにタイムアウトをリセット (emit しない)
-                        clearTimeout(pendingRequest.timeout);
-                        pendingRequest.timeout = setTimeout(() => {
-                            if (this.requests.delete(key)) {
-                                // T2: タイムアウト時にアセンブラのメモリをクリーンアップする
-                                pendingRequest.assembler?.reset();
-                                pendingRequest.reject(new Error("Timeout while requesting data"));
+                        const complete = pendingRequest.assembler.add(msg);
+
+                        if (complete) {
+                            // T8: アセンブル完了時のみ emit する (未完パケットは emit しない)
+                            const assembled = pendingRequest.assembler.assemble();
+                            const finalPacket = new dataPacketClass();
+                            finalPacket.buffer = msg;
+                            finalPacket.header = mgmtHeader;
+                            finalPacket.dataType = dataPacket.dataType;
+                            finalPacket.layer = dataPacket.layer;
+                            if ("readAssembled" in finalPacket && typeof finalPacket.readAssembled === "function") {
+                                finalPacket.readAssembled(assembled);
                             }
-                        }, this.config.requestTimeout);
+                            this.requests.delete(key);
+                            clearTimeout(pendingRequest.timeout);
+                            // readAssembled後にデータが不正(data=null)の場合はrejectする
+                            if ("data" in finalPacket && finalPacket.data === null) {
+                                pendingRequest.reject(new Error("Assembled data is invalid"));
+                                return;
+                            }
+                            if (this.connected) {
+                                this.emit("data", finalPacket);
+                            }
+                            pendingRequest.resolve(finalPacket);
+                        } else {
+                            // パケット到着ごとにタイムアウトをリセット (emit しない)
+                            clearTimeout(pendingRequest.timeout);
+                            pendingRequest.timeout = setTimeout(() => {
+                                if (this.requests.delete(key)) {
+                                    // T2: タイムアウト時にアセンブラのメモリをクリーンアップする
+                                    pendingRequest.assembler?.reset();
+                                    pendingRequest.reject(new Error("Timeout while requesting data"));
+                                }
+                            }, this.config.requestTimeout);
+                        }
                     }
                 } else {
                     // 単一パケット: 従来通り
@@ -582,7 +786,8 @@ export class TCNetClient extends EventEmitter {
         } else if (packet instanceof nw.TCNetOptInPacket) {
             // ユニキャスト経由でOptInを直接受信 -> 宛先に登録された
             if (mgmtHeader.nodeType == nw.NodeType.Master) {
-                // MasterからOptInを受信 -> Pro DJ Link Bridge等に登録された
+                // selectedAdapterのサブネット外からのMasterを無視する
+                if (!this.isInSelectedSubnet(rinfo.address)) return;
                 this.server = rinfo;
                 this.server.port = packet.nodeListenerPort;
                 if (this.connectedHandler) {
@@ -761,15 +966,7 @@ export class TCNetClient extends EventEmitter {
 
         this.switching = true;
 
-        // pendingリクエストをreject
-        for (const [, req] of this.requests) {
-            clearTimeout(req.timeout);
-            req.assembler?.reset();
-            req.reject(new Error("Connection switching"));
-        }
-        this.requests.clear();
-
-        // ソケット切断 (リスナー維持)
+        // ソケット切断 (リスナー維持、requests クリーンアップ含む)
         await this.disconnectSockets();
 
         // config更新
@@ -1281,6 +1478,18 @@ export class TCNetClient extends EventEmitter {
             request.layer = layer + 1; // APIは0-based、仕様は1-based
 
             const key = `${dataType}-${layer}`;
+
+            // 同一keyに未完了リクエストが残っている場合、先にキャンセルする
+            // (上書きすると旧timeoutが新リクエストを誤削除し、Promiseが永久に未解決になる)
+            const existing = this.requests.get(key);
+            if (existing) {
+                clearTimeout(existing.timeout);
+                if (existing.fileChunksDeadline) clearTimeout(existing.fileChunksDeadline);
+                existing.assembler?.reset();
+                this.requests.delete(key);
+                existing.reject(new Error("Superseded by new request"));
+            }
+
             const timeout = setTimeout(() => {
                 // T2: delete前にreqを取得し、アセンブラのメモリをクリーンアップする
                 const req = this.requests.get(key);
