@@ -736,6 +736,11 @@ export class TCNetClient extends EventEmitter {
                             }
                             this.requests.delete(key);
                             clearTimeout(pendingRequest.timeout);
+                            // readAssembled後にデータが不正(data=null)の場合はrejectする
+                            if ("data" in finalPacket && finalPacket.data === null) {
+                                pendingRequest.reject(new Error("Assembled data is invalid"));
+                                return;
+                            }
                             if (this.connected) {
                                 this.emit("data", finalPacket);
                             }
