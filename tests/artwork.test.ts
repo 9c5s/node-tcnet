@@ -145,6 +145,44 @@ describe("TCNetDataPacketType レジストリ", () => {
     });
 });
 
+describe("TCNetDataPacketArtwork JPEG SOI検証", () => {
+    it("JPEG SOIマーカーがないデータでreadAssembledするとdata=nullになる", () => {
+        const invalidData = Buffer.from([0x00, 0x01, 0x02, 0x03]);
+        const packet = new nw.TCNetDataPacketArtwork();
+        packet.buffer = Buffer.alloc(42);
+        packet.readAssembled(invalidData);
+        expect(packet.data).toBeNull();
+    });
+
+    it("totalPackets=0でJPEG SOIがないデータはrejectされる", async () => {
+        vi.useFakeTimers();
+        const client = new TestTCNetClient();
+        client.simulateConnected();
+        const mockSocket = { send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()) };
+        client.configureMockBroadcast(mockSocket);
+
+        const promise = client.requestData(nw.TCNetDataPacketType.ArtworkData, 0);
+
+        // SOIマーカーのないデータ
+        const invalidData = Buffer.from([0x00, 0x01, 0x02, 0x03, 0x04, 0x05]);
+        const pkt = Buffer.alloc(42 + invalidData.length);
+        writeValidHeader(pkt, nw.TCNetMessageType.File);
+        pkt.writeUInt8(128, 24);
+        pkt.writeUInt8(1, 25);
+        pkt.writeUInt32LE(0, 30); // totalPackets = 0
+        pkt.writeUInt32LE(0, 34);
+        pkt.writeUInt32LE(0, 38); // clusterSize = 0
+        invalidData.copy(pkt, 42);
+
+        client.simulateUnicast(pkt);
+        vi.advanceTimersByTime(200);
+
+        await expect(promise).rejects.toThrow("invalid");
+
+        vi.useRealTimers();
+    });
+});
+
 describe("receiveUnicast Artwork マルチパケット", () => {
     // vi.useFakeTimers() を使うテストの失敗時にも実時間に復帰させる保険
     // 各テスト内で個別に vi.useFakeTimers() を呼び出す
@@ -163,7 +201,9 @@ describe("receiveUnicast Artwork マルチパケット", () => {
 
         const promise = client.requestData(nw.TCNetDataPacketType.ArtworkData, 0);
 
-        const chunk1 = Buffer.alloc(2400, 0xff); // 1st cluster
+        const chunk1 = Buffer.alloc(2400, 0xaa); // 1st cluster
+        chunk1[0] = 0xff; // JPEG SOI
+        chunk1[1] = 0xd8;
         const chunk2 = Buffer.alloc(2400, 0xd8); // 2nd cluster
         const chunk3 = Buffer.alloc(902, 0xe0); // 3rd cluster (末尾)
 
@@ -189,7 +229,7 @@ describe("receiveUnicast Artwork マルチパケット", () => {
     it("3パケットアセンブル後のJPEGが各チャンクを順序通り連結した内容になる", async () => {
         const artwork = await receiveThreePacketArtwork();
         // 各チャンク境界の先頭バイトを検証し、連結順序が正しいことを確認する
-        expect(artwork.data!.jpeg[0]).toBe(0xff); // chunk1 先頭
+        expect(artwork.data!.jpeg[0]).toBe(0xff); // JPEG SOI マーカー
         expect(artwork.data!.jpeg[2400]).toBe(0xd8); // chunk2 先頭
         expect(artwork.data!.jpeg[4800]).toBe(0xe0); // chunk3 先頭
     });
@@ -236,7 +276,9 @@ describe("receiveUnicast Artwork マルチパケット", () => {
         const promise = client.requestData(nw.TCNetDataPacketType.ArtworkData, 0);
 
         // 3パケットに分割されたJPEGデータ (全てtotalPackets=0)
-        const chunk1 = Buffer.alloc(2400, 0xff);
+        const chunk1 = Buffer.alloc(2400, 0xaa);
+        chunk1[0] = 0xff; // JPEG SOI
+        chunk1[1] = 0xd8;
         const chunk2 = Buffer.alloc(2400, 0xd8);
         const chunk3 = Buffer.alloc(900, 0xe0);
 
@@ -274,6 +316,8 @@ describe("receiveUnicast Artwork マルチパケット", () => {
         const promise = client.requestData(nw.TCNetDataPacketType.ArtworkData, 0);
 
         const chunk1 = Buffer.alloc(2400, 0xaa);
+        chunk1[0] = 0xff; // JPEG SOI
+        chunk1[1] = 0xd8;
         const chunk2 = Buffer.alloc(1704, 0xbb); // 1746 - 42 = 1704
 
         const pkt1 = createFilePacketBuffer(128, 1, 2, 1, chunk1);
@@ -299,7 +343,9 @@ describe("receiveUnicast Artwork マルチパケット", () => {
 
         const promise = client.requestData(nw.TCNetDataPacketType.ArtworkData, 0);
 
-        const chunk1 = Buffer.alloc(100, 0x01);
+        const chunk1 = Buffer.alloc(100, 0xaa);
+        chunk1[0] = 0xff; // JPEG SOI
+        chunk1[1] = 0xd8;
         const chunk2 = Buffer.alloc(50, 0x02);
 
         client.simulateUnicast(createFilePacketBuffer(128, 1, 2, 1, chunk1));
@@ -324,7 +370,9 @@ describe("receiveUnicast Artwork マルチパケット", () => {
 
         const promise = client.requestData(nw.TCNetDataPacketType.ArtworkData, 0);
 
-        const chunk = Buffer.alloc(100, 0xff);
+        const chunk = Buffer.alloc(100, 0xaa);
+        chunk[0] = 0xff; // JPEG SOI
+        chunk[1] = 0xd8;
         // パケットを200ms未満の間隔で送り続け、fileCollectionTimeoutをリセットし続ける
         client.simulateUnicast(createFilePacketBuffer(128, 1, 0, 0, chunk));
         vi.advanceTimersByTime(150);
@@ -354,7 +402,9 @@ describe("receiveUnicast Artwork マルチパケット", () => {
         await expect(promise1).rejects.toThrow("Superseded by new request");
 
         // 2回目は正常にレスポンスを受信できる
-        const chunk = Buffer.alloc(100, 0xff);
+        const chunk = Buffer.alloc(100, 0xaa);
+        chunk[0] = 0xff; // JPEG SOI
+        chunk[1] = 0xd8;
         client.simulateUnicast(createFilePacketBuffer(128, 1, 1, 1, chunk));
 
         const result = await promise2;

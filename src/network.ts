@@ -920,6 +920,11 @@ export class TCNetDataPacketArtwork extends TCNetDataPacket {
      * @param assembled - 結合済みバッファ
      */
     readAssembled(assembled: Buffer): void {
+        // JPEG SOIマーカー(0xFF 0xD8)が存在しないデータは不正とみなす
+        if (assembled.length < 2 || assembled[0] !== 0xff || assembled[1] !== 0xd8) {
+            this.data = null;
+            return;
+        }
         this.data = { jpeg: Buffer.from(assembled) };
     }
 
