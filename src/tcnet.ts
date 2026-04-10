@@ -645,8 +645,7 @@ export class TCNetClient extends EventEmitter {
             pendingRequest.fileChunks = [];
             pendingRequest.fileChunksSize = 0;
             // requestTimeoutを全体の上限タイマーとして設定する
-            // fileCollectionTimeout > requestTimeout の場合はrequestTimeoutを使用する
-            const deadline = Math.max(this.config.requestTimeout, this.config.fileCollectionTimeout);
+            // fileCollectionTimeoutのリセットでは影響を受けない
             pendingRequest.fileChunksDeadline = setTimeout(() => {
                 if (this.requests.delete(key)) {
                     clearTimeout(pendingRequest.timeout);
@@ -654,7 +653,7 @@ export class TCNetClient extends EventEmitter {
                     pendingRequest.assembler?.reset();
                     pendingRequest.reject(new Error("Timeout while requesting data"));
                 }
-            }, deadline);
+            }, this.config.requestTimeout);
         }
         // TCNetデータパケットヘッダー後のペイロード開始位置
         const dataStart = 42;
