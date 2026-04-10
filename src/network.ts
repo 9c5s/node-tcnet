@@ -641,8 +641,9 @@ export class TCNetDataPacketCUE extends TCNetDataPacket {
             const inTime = this.buffer.readUInt32LE(offset + 2);
             const outTime = this.buffer.readUInt32LE(offset + 6);
             // BridgeはTYPEフィールドを0で送信する場合がある
-            // 空エントリはinTimeとoutTimeの両方が0であることで判定する
-            if (inTime === 0 && outTime === 0) continue;
+            // type=0かつinTime/outTime両方0のエントリのみスキップする
+            // type有効値(>=1)でinTime/outTime=0のケース(トラック先頭CUE)は保持する
+            if (type === 0 && inTime === 0 && outTime === 0) continue;
             cues.push({
                 index: i + 1,
                 type,

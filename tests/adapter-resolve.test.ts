@@ -79,11 +79,20 @@ describe("resolveAdapterByRemoteAddress", () => {
         expect(client.resolve("192.168.0.130")).toBe("en12");
     });
 
-    it("重複サブネットのアダプタがある場合はnullを返す", () => {
+    it("重複サブネットではlongest prefix matchで最も具体的なアダプタを返す", () => {
+        const client = new TestClient();
+        client.addAdapter("vpn0", "192.168.0.50", "255.0.0.0"); // /8 VPN
+        client.addAdapter("en0", "192.168.0.10", "255.255.255.0"); // /24 LAN
+        // /24 の方が具体的なので en0 が選択される
+        expect(client.resolve("192.168.0.130")).toBe("en0");
+    });
+
+    it("完全に同一のサブネット(/24同士)では最初にマッチしたアダプタを返す", () => {
         const client = new TestClient();
         client.addAdapter("en0", "192.168.0.10", "255.255.255.0");
-        client.addAdapter("en1", "192.168.0.20", "255.255.255.0"); // 同じサブネット
-        expect(client.resolve("192.168.0.130")).toBeNull();
+        client.addAdapter("en1", "192.168.0.20", "255.255.255.0");
+        // 同じマスク長なので最初のマッチ(en0)が返る
+        expect(client.resolve("192.168.0.130")).toBe("en0");
     });
 });
 

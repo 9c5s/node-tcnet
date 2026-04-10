@@ -46,16 +46,16 @@ describe("TCNetDataPacketCUE", () => {
         expect(packet.data!.cues[1].index).toBe(2);
     });
 
-    it("inTime/outTimeが共に0のCUEエントリはスキップする", () => {
+    it("type=0かつinTime/outTime共に0のCUEエントリはスキップする", () => {
         const buffer = Buffer.alloc(436);
         buffer.writeUInt8(3, 2);
         buffer.write("TCN", 4, "ascii");
         buffer.writeUInt8(200, 7);
         buffer.writeUInt8(12, 24);
         buffer.writeUInt8(1, 25);
-        // CUE 1 at byte 47: type=1だがinTime/outTime共に0 → スキップ
-        buffer.writeUInt8(1, 47);
-        // CUE 2 at byte 69: inTime=3000 → 含まれる
+        // CUE 1 at byte 47: type=0, inTime/outTime共に0 → スキップ
+        // (type=0はBridge未実装のケース)
+        // CUE 2 at byte 69: type=1, inTime=3000 → 含まれる
         buffer.writeUInt8(1, 69);
         buffer.writeUInt32LE(3000, 71);
 
@@ -67,6 +67,27 @@ describe("TCNetDataPacketCUE", () => {
         expect(packet.data!.cues).toHaveLength(1);
         expect(packet.data!.cues[0].index).toBe(2);
         expect(packet.data!.cues[0].inTime).toBe(3000);
+    });
+
+    it("type有効値でinTime/outTime共に0のCUEエントリは保持する(トラック先頭CUE)", () => {
+        const buffer = Buffer.alloc(436);
+        buffer.writeUInt8(3, 2);
+        buffer.write("TCN", 4, "ascii");
+        buffer.writeUInt8(200, 7);
+        buffer.writeUInt8(12, 24);
+        buffer.writeUInt8(1, 25);
+        // CUE 1 at byte 47: type=1, inTime=0, outTime=0 → type有効なので保持
+        buffer.writeUInt8(1, 47);
+
+        const packet = new TCNetDataPacketCUE();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+
+        expect(packet.data!.cues).toHaveLength(1);
+        expect(packet.data!.cues[0].type).toBe(1);
+        expect(packet.data!.cues[0].inTime).toBe(0);
+        expect(packet.data!.cues[0].outTime).toBe(0);
     });
 
     it("type=0でもinTimeが非0ならエントリに含まれる", () => {

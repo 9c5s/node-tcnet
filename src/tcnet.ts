@@ -294,6 +294,15 @@ export class TCNetClient extends EventEmitter {
             rejectHandler(new Error("Disconnected"));
         }
 
+        // 保留中のリクエストをrejectしタイマーを解放する
+        for (const [, req] of this.requests) {
+            clearTimeout(req.timeout);
+            if (req.fileChunksDeadline) clearTimeout(req.fileChunksDeadline);
+            req.assembler?.reset();
+            req.reject(new Error("Disconnected"));
+        }
+        this.requests.clear();
+
         const closePromises: Promise<void>[] = [];
         const closedSockets = new Set<Socket>();
         for (const socket of this.broadcastSockets.values()) {
@@ -365,6 +374,25 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
+     * 送信元IPが選択済みアダプタと同一サブネット内かを判定する
+     * @param remoteAddress - 送信元IPv4アドレス
+     * @returns 同一サブネット内ならtrue。selectedAdapter未設定やIPv4なし、パース失敗時はtrue(安全側)
+     */
+    private isInSelectedSubnet(remoteAddress: string): boolean {
+        if (!this._selectedAdapter) return true;
+        const ipv4 = findIPv4Address(this._selectedAdapter);
+        if (!ipv4) return true;
+        try {
+            const mask = ipToNumber(ipv4.netmask);
+            const localNet = ipToNumber(ipv4.address) & mask;
+            const remoteNet = ipToNumber(remoteAddress) & mask;
+            return localNet === remoteNet;
+        } catch {
+            return true;
+        }
+    }
+
+    /**
      * 送信元IPアドレスから対応するアダプタ名を逆引きする
      * 同一サブネットに属するアダプタを返す
      * @param remoteAddress - 送信元IPv4アドレス
@@ -374,18 +402,20 @@ export class TCNetClient extends EventEmitter {
         try {
             const remoteNum = ipToNumber(remoteAddress);
             let matchedName: string | null = null;
+            let matchedMaskBits = -1;
             for (const [name, adapter] of this.adapterMap) {
                 const ipv4 = findIPv4Address(adapter);
                 if (!ipv4) continue;
                 const mask = ipToNumber(ipv4.netmask);
                 const localNet = ipToNumber(ipv4.address) & mask;
                 if ((remoteNum & mask) === localNet) {
-                    if (matchedName !== null) {
-                        // 複数アダプタが同一サブネットにマッチ: 曖昧なため null を返す
-                        this.log?.debug(`Ambiguous adapter match for ${remoteAddress}: ${matchedName} and ${name}`);
-                        return null;
+                    // 複数マッチ時はlongest prefix(最も具体的なサブネット)を優先する
+                    // VPN(/8) + LAN(/24) のような環境で LAN を正しく選択する
+                    const bits = Math.clz32(~mask >>> 0);
+                    if (bits > matchedMaskBits) {
+                        matchedName = name;
+                        matchedMaskBits = bits;
                     }
-                    matchedName = name;
                 }
             }
             return matchedName;
@@ -549,15 +579,7 @@ export class TCNetClient extends EventEmitter {
                         this.convergeToAdapter(adapterName, rinfo, packet.nodeListenerPort);
                     } else if (!this.connected && !this.detectingAdapter) {
                         // 単一アダプタ接続中: selectedAdapterのサブネット外からのMasterを無視する
-                        if (this._selectedAdapter) {
-                            const ipv4 = findIPv4Address(this._selectedAdapter);
-                            if (ipv4) {
-                                const mask = ipToNumber(ipv4.netmask);
-                                const localNet = ipToNumber(ipv4.address) & mask;
-                                const remoteNet = ipToNumber(rinfo.address) & mask;
-                                if (localNet !== remoteNet) return;
-                            }
-                        }
+                        if (!this.isInSelectedSubnet(rinfo.address)) return;
                         this.server = rinfo;
                         this.server.port = packet.nodeListenerPort;
                         this.connected = true;
@@ -567,15 +589,7 @@ export class TCNetClient extends EventEmitter {
                         }
                     } else if (this.connected) {
                         // 選択済みアダプタのサブネット外からのMasterを無視する
-                        if (this._selectedAdapter) {
-                            const ipv4 = findIPv4Address(this._selectedAdapter);
-                            if (ipv4) {
-                                const mask = ipToNumber(ipv4.netmask);
-                                const localNet = ipToNumber(ipv4.address) & mask;
-                                const remoteNet = ipToNumber(rinfo.address) & mask;
-                                if (localNet !== remoteNet) return;
-                            }
-                        }
+                        if (!this.isInSelectedSubnet(rinfo.address)) return;
                         // 確定後: 従来通りserver更新
                         if (this.server?.address !== rinfo.address) {
                             this.bridgeIsWindows = null;
@@ -631,7 +645,8 @@ export class TCNetClient extends EventEmitter {
             pendingRequest.fileChunks = [];
             pendingRequest.fileChunksSize = 0;
             // requestTimeoutを全体の上限タイマーとして設定する
-            // fileCollectionTimeoutのリセットでは影響を受けない
+            // fileCollectionTimeout > requestTimeout の場合はrequestTimeoutを使用する
+            const deadline = Math.max(this.config.requestTimeout, this.config.fileCollectionTimeout);
             pendingRequest.fileChunksDeadline = setTimeout(() => {
                 if (this.requests.delete(key)) {
                     clearTimeout(pendingRequest.timeout);
@@ -639,7 +654,7 @@ export class TCNetClient extends EventEmitter {
                     pendingRequest.assembler?.reset();
                     pendingRequest.reject(new Error("Timeout while requesting data"));
                 }
-            }, this.config.requestTimeout);
+            }, deadline);
         }
         // TCNetデータパケットヘッダー後のペイロード開始位置
         const dataStart = 42;
@@ -772,7 +787,8 @@ export class TCNetClient extends EventEmitter {
         } else if (packet instanceof nw.TCNetOptInPacket) {
             // ユニキャスト経由でOptInを直接受信 -> 宛先に登録された
             if (mgmtHeader.nodeType == nw.NodeType.Master) {
-                // MasterからOptInを受信 -> Pro DJ Link Bridge等に登録された
+                // selectedAdapterのサブネット外からのMasterを無視する
+                if (!this.isInSelectedSubnet(rinfo.address)) return;
                 this.server = rinfo;
                 this.server.port = packet.nodeListenerPort;
                 if (this.connectedHandler) {
@@ -951,16 +967,7 @@ export class TCNetClient extends EventEmitter {
 
         this.switching = true;
 
-        // pendingリクエストをreject
-        for (const [, req] of this.requests) {
-            clearTimeout(req.timeout);
-            if (req.fileChunksDeadline) clearTimeout(req.fileChunksDeadline);
-            req.assembler?.reset();
-            req.reject(new Error("Connection switching"));
-        }
-        this.requests.clear();
-
-        // ソケット切断 (リスナー維持)
+        // ソケット切断 (リスナー維持、requests クリーンアップ含む)
         await this.disconnectSockets();
 
         // config更新
