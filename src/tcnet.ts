@@ -18,6 +18,8 @@ type STORED_REQUEST = {
     assembler?: MultiPacketAssembler;
     // FileパケットでtotalPackets=0の場合、パケットを順次蓄積しタイムアウトでアセンブルする
     fileChunks?: Buffer[];
+    // fileChunks蓄積の全体上限タイマー (requestTimeoutで打ち切る)
+    fileChunksDeadline?: NodeJS.Timeout;
 };
 
 const MULTI_PACKET_TYPES: Set<number> = new Set([
@@ -573,6 +575,71 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
+     * totalPackets=0のFileパケットを蓄積し、タイムアウトでアセンブルする
+     *
+     * fileCollectionTimeout (200ms) の無通信でアセンブル完了とみなす。
+     * requestTimeout を全体の上限タイマーとして設定し、パケットが来続けても
+     * 無限蓄積を防ぐ。上限到達時は不完全データとして reject する。
+     * @param key - リクエストキー
+     * @param pendingRequest - 保留中のリクエスト
+     * @param dataPacketClass - データパケットクラス
+     * @param msg - 受信バッファ
+     * @param mgmtHeader - 管理ヘッダー
+     * @param dataPacket - パース済みデータパケット
+     */
+    private handleFileChunkPacket(
+        key: string,
+        pendingRequest: STORED_REQUEST,
+        dataPacketClass: typeof nw.TCNetDataPacket,
+        msg: Buffer,
+        mgmtHeader: nw.TCNetManagementHeader,
+        dataPacket: nw.TCNetDataPacket,
+    ): void {
+        if (!pendingRequest.fileChunks) {
+            pendingRequest.fileChunks = [];
+            // requestTimeoutを全体の上限タイマーとして設定する
+            // fileCollectionTimeoutのリセットでは影響を受けない
+            pendingRequest.fileChunksDeadline = setTimeout(() => {
+                if (this.requests.delete(key)) {
+                    clearTimeout(pendingRequest.timeout);
+                    pendingRequest.fileChunks = undefined;
+                    pendingRequest.assembler?.reset();
+                    pendingRequest.reject(new Error("Timeout while requesting data"));
+                }
+            }, this.config.requestTimeout);
+        }
+        const dataStart = 42;
+        if (msg.length > dataStart) {
+            const clusterSize = msg.readUInt32LE(38);
+            const end = clusterSize > 0 ? Math.min(dataStart + clusterSize, msg.length) : msg.length;
+            pendingRequest.fileChunks.push(Buffer.from(msg.slice(dataStart, end)));
+        }
+        // fileCollectionTimeoutをリセットする (最後のパケットから200msで完了判定)
+        clearTimeout(pendingRequest.timeout);
+        pendingRequest.timeout = setTimeout(() => {
+            if (this.requests.delete(key)) {
+                if (pendingRequest.fileChunksDeadline) {
+                    clearTimeout(pendingRequest.fileChunksDeadline);
+                }
+                const assembled = Buffer.concat(pendingRequest.fileChunks!);
+                pendingRequest.fileChunks = undefined;
+                const finalPacket = new dataPacketClass();
+                finalPacket.buffer = msg;
+                finalPacket.header = mgmtHeader;
+                finalPacket.dataType = dataPacket.dataType;
+                finalPacket.layer = dataPacket.layer;
+                if ("readAssembled" in finalPacket && typeof finalPacket.readAssembled === "function") {
+                    finalPacket.readAssembled(assembled);
+                }
+                if (this.connected) {
+                    this.emit("data", finalPacket);
+                }
+                pendingRequest.resolve(finalPacket);
+            }
+        }, this.config.fileCollectionTimeout);
+    }
+
+    /**
      * ユニキャストソケットのデータグラム受信コールバック
      * @param msg - データグラムバッファ
      * @param rinfo - 送信元情報
@@ -600,36 +667,7 @@ export class TCNetClient extends EventEmitter {
                     const totalPackets = msg.readUInt32LE(30);
                     const isFilePacket = packet instanceof nw.TCNetFilePacket;
                     if (isFilePacket && (totalPackets === 0 || pendingRequest.fileChunks)) {
-                        // FileパケットでtotalPackets=0の場合、パケットを順次蓄積し
-                        // 一定時間新パケットが来なければアセンブル完了とみなす
-                        if (!pendingRequest.fileChunks) {
-                            pendingRequest.fileChunks = [];
-                        }
-                        const dataStart = 42;
-                        if (msg.length > dataStart) {
-                            const clusterSize = msg.readUInt32LE(38);
-                            const end = clusterSize > 0 ? Math.min(dataStart + clusterSize, msg.length) : msg.length;
-                            pendingRequest.fileChunks.push(Buffer.from(msg.slice(dataStart, end)));
-                        }
-                        clearTimeout(pendingRequest.timeout);
-                        pendingRequest.timeout = setTimeout(() => {
-                            if (this.requests.delete(key)) {
-                                const assembled = Buffer.concat(pendingRequest.fileChunks!);
-                                pendingRequest.fileChunks = undefined;
-                                const finalPacket = new dataPacketClass();
-                                finalPacket.buffer = msg;
-                                finalPacket.header = mgmtHeader;
-                                finalPacket.dataType = dataPacket.dataType;
-                                finalPacket.layer = dataPacket.layer;
-                                if ("readAssembled" in finalPacket && typeof finalPacket.readAssembled === "function") {
-                                    finalPacket.readAssembled(assembled);
-                                }
-                                if (this.connected) {
-                                    this.emit("data", finalPacket);
-                                }
-                                pendingRequest.resolve(finalPacket);
-                            }
-                        }, this.config.fileCollectionTimeout);
+                        this.handleFileChunkPacket(key, pendingRequest, dataPacketClass, msg, mgmtHeader, dataPacket);
                     } else {
                         const complete = pendingRequest.assembler.add(msg);
 
@@ -859,6 +897,7 @@ export class TCNetClient extends EventEmitter {
         // pendingリクエストをreject
         for (const [, req] of this.requests) {
             clearTimeout(req.timeout);
+            if (req.fileChunksDeadline) clearTimeout(req.fileChunksDeadline);
             req.assembler?.reset();
             req.reject(new Error("Connection switching"));
         }
@@ -1382,6 +1421,7 @@ export class TCNetClient extends EventEmitter {
             const existing = this.requests.get(key);
             if (existing) {
                 clearTimeout(existing.timeout);
+                if (existing.fileChunksDeadline) clearTimeout(existing.fileChunksDeadline);
                 existing.assembler?.reset();
                 this.requests.delete(key);
                 existing.reject(new Error("Superseded by new request"));

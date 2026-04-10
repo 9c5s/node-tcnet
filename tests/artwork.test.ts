@@ -318,6 +318,31 @@ describe("receiveUnicast Artwork マルチパケット", () => {
         await promise;
     });
 
+    it("totalPackets=0 のfileChunks蓄積がrequestTimeoutで上限タイムアウトする", async () => {
+        vi.useFakeTimers();
+        const client = new TestTCNetClient();
+        client.simulateConnected();
+        const mockSocket = { send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()) };
+        (client as any).broadcastSocket = mockSocket;
+        (client as any).config.broadcastAddress = "255.255.255.255";
+        (client as any).config.requestTimeout = 500;
+
+        const promise = client.requestData(nw.TCNetDataPacketType.ArtworkData, 0);
+
+        const chunk = Buffer.alloc(100, 0xff);
+        // パケットを200ms未満の間隔で送り続け、fileCollectionTimeoutをリセットし続ける
+        client.simulateUnicast(createFilePacketBuffer(128, 1, 0, 0, chunk));
+        vi.advanceTimersByTime(150);
+        client.simulateUnicast(createFilePacketBuffer(128, 1, 0, 0, chunk));
+        vi.advanceTimersByTime(150);
+        client.simulateUnicast(createFilePacketBuffer(128, 1, 0, 0, chunk));
+
+        // requestTimeout(500ms)到達で上限タイムアウト
+        vi.advanceTimersByTime(200);
+
+        await expect(promise).rejects.toThrow("Timeout");
+    });
+
     it("同一keyで再requestした場合、旧リクエストが reject され新リクエストが正常動作する", async () => {
         const client = new TestTCNetClient();
         client.simulateConnected();
