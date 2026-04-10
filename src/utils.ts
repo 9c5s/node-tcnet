@@ -7,8 +7,12 @@ import { networkInterfaces } from "os";
  * @throws {Error} 不正なIPv4形式(オクテット数不一致、非整数、範囲外)の場合
  */
 export function ipToNumber(ip: string): number {
-    const parts = ip.split(".").map(Number);
-    if (parts.length !== 4 || parts.some((p) => !Number.isInteger(p) || p < 0 || p > 255)) {
+    const segments = ip.split(".");
+    if (segments.length !== 4 || segments.some((s) => s === "" || !/^\d+$/.test(s))) {
+        throw new Error(`Invalid IPv4 address: ${ip}`);
+    }
+    const parts = segments.map(Number);
+    if (parts.some((p) => p > 255)) {
         throw new Error(`Invalid IPv4 address: ${ip}`);
     }
     return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
