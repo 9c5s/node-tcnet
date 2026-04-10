@@ -78,13 +78,39 @@ describe("resolveAdapterByRemoteAddress", () => {
         // Bridge自身のIPからのブロードキャスト
         expect(client.resolve("192.168.0.130")).toBe("en12");
     });
+
+    it("重複サブネットのアダプタがある場合はnullを返す", () => {
+        const client = new TestClient();
+        client.addAdapter("en0", "192.168.0.10", "255.255.255.0");
+        client.addAdapter("en1", "192.168.0.20", "255.255.255.0"); // 同じサブネット
+        expect(client.resolve("192.168.0.130")).toBeNull();
+    });
 });
 
+function setupConnectedClient(): TestTCNetClient {
+    const client = new TestTCNetClient();
+    (client as any).connected = true;
+    (client as any)._selectedAdapter = {
+        name: "en0",
+        addresses: [
+            {
+                address: "192.168.0.10",
+                netmask: "255.255.255.0",
+                family: "IPv4" as const,
+                mac: "00:00:00:00:00:00",
+                internal: false,
+                cidr: null,
+            },
+        ],
+    };
+    (client as any).server = { address: "192.168.0.100", port: 65207, family: "IPv4", size: 0 };
+    return client;
+}
+
 describe("receiveBroadcast サブネットフィルタ", () => {
-    it("connected後、選択アダプタと異なるサブネットのMaster OptInでserverが更新されない", () => {
+    it("pre-connected状態で選択アダプタと異なるサブネットのMaster OptInを無視する", () => {
         const client = new TestTCNetClient();
-        // 手動でconnected + selectedAdapter を設定
-        (client as any).connected = true;
+        // connectToAdapter経由: connected=false, detectingAdapter=false, selectedAdapter設定済み
         (client as any)._selectedAdapter = {
             name: "en0",
             addresses: [
@@ -94,11 +120,30 @@ describe("receiveBroadcast サブネットフィルタ", () => {
                     family: "IPv4" as const,
                     mac: "00:00:00:00:00:00",
                     internal: false,
-                    cidr: "192.168.0.10/24",
+                    cidr: null,
                 },
             ],
         };
-        (client as any).server = { address: "192.168.0.100", port: 65207, family: "IPv4", size: 0 };
+
+        const buffer = Buffer.alloc(68);
+        writeValidHeader(buffer, nw.TCNetMessageType.OptIn);
+        buffer.writeUInt8(nw.NodeType.Master, 17);
+        buffer.writeUInt16LE(65207, 26);
+
+        client.simulateBroadcast(buffer, {
+            address: "10.0.0.50",
+            port: 60000,
+            family: "IPv4" as const,
+            size: buffer.length,
+        });
+
+        // pre-connected状態なのでserverは設定されない
+        expect((client as any).server).toBeNull();
+        expect((client as any).connected).toBe(false);
+    });
+
+    it("connected後、選択アダプタと異なるサブネットのMaster OptInでserverが更新されない", () => {
+        const client = setupConnectedClient();
 
         // 別サブネット(10.0.0.x)のMaster OptInを送信
         const buffer = Buffer.alloc(68);
@@ -118,22 +163,7 @@ describe("receiveBroadcast サブネットフィルタ", () => {
     });
 
     it("connected後、同一サブネットのMaster OptInでserverが更新される", () => {
-        const client = new TestTCNetClient();
-        (client as any).connected = true;
-        (client as any)._selectedAdapter = {
-            name: "en0",
-            addresses: [
-                {
-                    address: "192.168.0.10",
-                    netmask: "255.255.255.0",
-                    family: "IPv4" as const,
-                    mac: "00:00:00:00:00:00",
-                    internal: false,
-                    cidr: "192.168.0.10/24",
-                },
-            ],
-        };
-        (client as any).server = { address: "192.168.0.100", port: 65207, family: "IPv4", size: 0 };
+        const client = setupConnectedClient();
 
         const buffer = Buffer.alloc(68);
         writeValidHeader(buffer, nw.TCNetMessageType.OptIn);

@@ -103,6 +103,7 @@ export function findIPv4Address(adapter: NetworkAdapterInfo): NetworkAdapterAddr
  * @returns データ終了位置
  */
 export function getClusterEnd(bufferLength: number, dataStart: number, clusterSize: number): number {
+    if (dataStart >= bufferLength) return bufferLength;
     return clusterSize > 0 ? Math.min(dataStart + clusterSize, bufferLength) : bufferLength;
 }
 

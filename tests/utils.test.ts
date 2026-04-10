@@ -368,4 +368,13 @@ describe("getClusterEnd", () => {
     it("dataStart+clusterSizeがbufferLengthを超える場合、bufferLengthを返す", () => {
         expect(getClusterEnd(50, 42, 100)).toBe(50);
     });
+
+    it("clusterSizeが負の場合、bufferLengthを返す", () => {
+        expect(getClusterEnd(100, 42, -1)).toBe(100);
+    });
+
+    it("dataStartがbufferLength以上の場合、bufferLengthを返す", () => {
+        expect(getClusterEnd(42, 42, 10)).toBe(42);
+        expect(getClusterEnd(30, 42, 10)).toBe(30);
+    });
 });
