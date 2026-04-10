@@ -544,7 +544,7 @@ describe("TCNetDataPacketMetrics", () => {
         buffer.writeUInt32LE(100000, 40); // speed
         buffer.writeUInt32LE(4, 57); // beatNumber
         buffer.writeUInt32LE(14000, 112); // bpm (= 140.00 BPM * 100)
-        buffer.writeInt16LE(-50, 116); // pitchBend
+        buffer.writeUInt16LE(40000, 116); // pitchBend (32768=100%)
         buffer.writeUInt32LE(777, 118); // trackID
 
         const packet = new TCNetDataPacketMetrics();
@@ -564,7 +564,7 @@ describe("TCNetDataPacketMetrics", () => {
         expect(packet.data!.speed).toBe(100000);
         expect(packet.data!.beatNumber).toBe(4);
         expect(packet.data!.bpm).toBe(14000);
-        expect(packet.data!.pitchBend).toBe(-50);
+        expect(packet.data!.pitchBend).toBe(40000);
         expect(packet.data!.trackID).toBe(777);
     });
 
@@ -577,6 +577,25 @@ describe("TCNetDataPacketMetrics", () => {
 
     it("length() は 122 を返す", () => {
         expect(new TCNetDataPacketMetrics().length()).toBe(122);
+    });
+
+    it.each([
+        { value: 0, label: "最小値" },
+        { value: 32768, label: "100%基準" },
+        { value: 65535, label: "最大値" },
+    ])("pitchBend=$value ($label) を正しくパースする", ({ value }) => {
+        const buffer = Buffer.alloc(122);
+        buffer.writeUInt8(3, 2);
+        buffer.write("TCN", 4, "ascii");
+        buffer.writeUInt8(200, 7);
+        buffer.writeUInt8(2, 24);
+        buffer.writeUInt8(1, 25);
+        buffer.writeUInt16LE(value, 116);
+        const packet = new TCNetDataPacketMetrics();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+        expect(packet.data!.pitchBend).toBe(value);
     });
 });
 

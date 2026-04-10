@@ -35,7 +35,6 @@ const run = async () => {
         status: TCNetLayerStatus;
         trackID: number | null;
         pitchBend: number;
-        speed: number;
     };
 
     const layerInfo: LayerInfo[] = new Array(8);
@@ -46,7 +45,6 @@ const run = async () => {
             status: TCNetLayerStatus.IDLE,
             trackID: null,
             pitchBend: 0,
-            speed: 0,
         };
     }
 
@@ -75,7 +73,6 @@ const run = async () => {
             const info = layerInfo[packet.layer];
             if (info) {
                 info.pitchBend = packet.data?.pitchBend ?? 0;
-                info.speed = 1 + info.pitchBend / 10000;
             }
         }
     });

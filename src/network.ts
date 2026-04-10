@@ -539,19 +539,29 @@ export type TCNetLayerSyncMaster = (typeof TCNetLayerSyncMaster)[keyof typeof TC
  * メトリクスデータパケット (BPM/速度/位置等)
  * @category Data Packets
  */
+/**
+ * Metricsデータの構造を表す型
+ * @category Types
+ */
+export type MetricsData = {
+    state: TCNetLayerStatus;
+    syncMaster: TCNetLayerSyncMaster;
+    beatMarker: number;
+    trackLength: number;
+    currentPosition: number;
+    speed: number;
+    beatNumber: number;
+    bpm: number;
+    pitchBend: number;
+    trackID: number;
+};
+
+/**
+ * メトリクスデータパケット (BPM/速度/PitchBend等)
+ * @category Data Packets
+ */
 export class TCNetDataPacketMetrics extends TCNetDataPacket {
-    data: {
-        state: TCNetLayerStatus;
-        syncMaster: TCNetLayerSyncMaster;
-        beatMarker: number;
-        trackLength: number;
-        currentPosition: number;
-        speed: number;
-        beatNumber: number;
-        bpm: number;
-        pitchBend: number;
-        trackID: number;
-    } | null = null;
+    data: MetricsData | null = null;
 
     /** バッファからパケットデータを読み取る */
     read(): void {
@@ -564,7 +574,7 @@ export class TCNetDataPacketMetrics extends TCNetDataPacket {
             speed: this.buffer.readUInt32LE(40),
             beatNumber: this.buffer.readUInt32LE(57),
             bpm: this.buffer.readUInt32LE(112),
-            pitchBend: this.buffer.readInt16LE(116),
+            pitchBend: this.buffer.readUInt16LE(116),
             trackID: this.buffer.readUInt32LE(118),
         };
     }
@@ -689,8 +699,8 @@ function parseWaveformBars(source: Buffer, dataStart: number, maxBytes?: number)
     const safeEnd = dataStart + ((end - dataStart) & ~1);
     for (let i = dataStart; i < safeEnd; i += 2) {
         bars.push({
-            level: source.readUInt8(i),
-            color: source.readUInt8(i + 1),
+            color: source.readUInt8(i),
+            level: source.readUInt8(i + 1),
         });
     }
     return bars;
