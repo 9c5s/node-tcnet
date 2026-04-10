@@ -75,7 +75,7 @@ const run = async () => {
             const info = layerInfo[packet.layer];
             if (info) {
                 info.pitchBend = packet.data?.pitchBend ?? 0;
-                info.speed = 1 + info.pitchBend / 10000;
+                info.speed = info.pitchBend / 32768;
             }
         }
     });

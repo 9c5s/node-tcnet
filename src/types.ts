@@ -24,8 +24,8 @@ export type CueData = {
  * @category Types
  */
 export type WaveformBar = {
-    level: number;
     color: number;
+    level: number;
 };
 
 /**

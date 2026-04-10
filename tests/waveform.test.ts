@@ -29,7 +29,7 @@ describe("TCNetDataPacketSmallWaveForm", () => {
         expect(packet.data!.bars).toHaveLength(1200);
         expect(packet.data!.bars[0]).toEqual({ color: 200, level: 150 });
         expect(packet.data!.bars[1]).toEqual({ color: 100, level: 50 });
-        expect(packet.data!.bars[2]).toEqual({ level: 0, color: 0 });
+        expect(packet.data!.bars[2]).toEqual({ color: 0, level: 0 });
     });
 
     it("バッファが短い場合でもクラッシュしない", () => {
@@ -80,6 +80,45 @@ describe("TCNetDataPacketSmallWaveForm", () => {
         // Assert
         expect(packet.data).not.toBeNull();
         expect(packet.data!.bars).toHaveLength(0);
+    });
+
+    it("colorとlevelが同一値でも正しくパースする", () => {
+        const buffer = Buffer.alloc(2442);
+        buffer.writeUInt8(3, 2);
+        buffer.write("TCN", 4, "ascii");
+        buffer.writeUInt8(200, 7);
+        buffer.writeUInt8(16, 24);
+        buffer.writeUInt8(1, 25);
+        buffer.writeUInt8(100, 42);
+        buffer.writeUInt8(100, 43);
+
+        const packet = new TCNetDataPacketSmallWaveForm();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+
+        expect(packet.data!.bars[0]).toEqual({ color: 100, level: 100 });
+    });
+
+    it("colorとlevelの境界値を正しくパースする", () => {
+        const buffer = Buffer.alloc(2442);
+        buffer.writeUInt8(3, 2);
+        buffer.write("TCN", 4, "ascii");
+        buffer.writeUInt8(200, 7);
+        buffer.writeUInt8(16, 24);
+        buffer.writeUInt8(1, 25);
+        buffer.writeUInt8(0, 42);
+        buffer.writeUInt8(255, 43);
+        buffer.writeUInt8(255, 44);
+        buffer.writeUInt8(0, 45);
+
+        const packet = new TCNetDataPacketSmallWaveForm();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+
+        expect(packet.data!.bars[0]).toEqual({ color: 0, level: 255 });
+        expect(packet.data!.bars[1]).toEqual({ color: 255, level: 0 });
     });
 });
 

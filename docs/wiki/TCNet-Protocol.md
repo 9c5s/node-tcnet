@@ -157,7 +157,7 @@ MessageType=200のData内のサブタイプ。
 |------|-----------------|-----|
 | BPM | 100倍値(UInt32LE) | 12000 = 120.00 BPM |
 | Speed | 32768 = 100%, 0 = 0%, 65536 = 200%(UInt32LE) | 32768 = 100% |
-| Pitch Bend | 仕様はUInt16LE(0-65536, 32768=100%)だが、本ライブラリではInt16LEで読み取る。詳細は[[Implementation Status]]を参照 | 32768 = 100% |
+| Pitch Bend | UInt16LE(0-65535, 32768=100%) | 32768 = 100% |
 | Layer ID | 1-based(1=Layer1 ... 8=LayerC) | ワイヤ上の1がAPI上の0に対応 |
 | MetaDataテキスト | V3.5.0+はUTF-16LE、V3.4以前はUTF-8(各256バイト) | -- |
 
