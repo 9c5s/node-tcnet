@@ -544,7 +544,7 @@ describe("TCNetDataPacketMetrics", () => {
         buffer.writeUInt32LE(100000, 40); // speed
         buffer.writeUInt32LE(4, 57); // beatNumber
         buffer.writeUInt32LE(14000, 112); // bpm (= 140.00 BPM * 100)
-        buffer.writeInt16LE(-50, 116); // pitchBend
+        buffer.writeUInt16LE(40000, 116); // pitchBend (32768=100%)
         buffer.writeUInt32LE(777, 118); // trackID
 
         const packet = new TCNetDataPacketMetrics();
@@ -564,7 +564,7 @@ describe("TCNetDataPacketMetrics", () => {
         expect(packet.data!.speed).toBe(100000);
         expect(packet.data!.beatNumber).toBe(4);
         expect(packet.data!.bpm).toBe(14000);
-        expect(packet.data!.pitchBend).toBe(-50);
+        expect(packet.data!.pitchBend).toBe(40000);
         expect(packet.data!.trackID).toBe(777);
     });
 

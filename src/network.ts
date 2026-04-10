@@ -564,7 +564,7 @@ export class TCNetDataPacketMetrics extends TCNetDataPacket {
             speed: this.buffer.readUInt32LE(40),
             beatNumber: this.buffer.readUInt32LE(57),
             bpm: this.buffer.readUInt32LE(112),
-            pitchBend: this.buffer.readInt16LE(116),
+            pitchBend: this.buffer.readUInt16LE(116),
             trackID: this.buffer.readUInt32LE(118),
         };
     }
@@ -689,8 +689,8 @@ function parseWaveformBars(source: Buffer, dataStart: number, maxBytes?: number)
     const safeEnd = dataStart + ((end - dataStart) & ~1);
     for (let i = dataStart; i < safeEnd; i += 2) {
         bars.push({
-            level: source.readUInt8(i),
-            color: source.readUInt8(i + 1),
+            color: source.readUInt8(i),
+            level: source.readUInt8(i + 1),
         });
     }
     return bars;
