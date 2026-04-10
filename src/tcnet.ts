@@ -1018,9 +1018,12 @@ export class TCNetClient extends EventEmitter {
     }
 
     /**
-     * 認証シーケンスを送信する
-     * cmd=0 (hello) の後に50ms待機してcmd=2 (認証) を送信する。
-     * 実機テストの結果、AppDataはbroadcastSocket(60000)経由でブロードキャストアドレスに送信する。
+     * 認証シーケンス (cmd=0 hello → 50ms wait → cmd=2 auth) を送信する
+     *
+     * 呼び出し時点の sessionToken を内部で expectedToken としてキャプチャし、
+     * 各非同期境界で `this.sessionToken !== expectedToken` を確認する。
+     * 旧世代になっていたら resetAuthSession を呼ばずに return する
+     * (新世代の state を壊さないため)。
      */
     protected async sendAuthSequence(): Promise<void> {
         if (!this.server || !this.broadcastSocket || this.sessionToken === null) {
@@ -1034,14 +1037,19 @@ export class TCNetClient extends EventEmitter {
             return;
         }
 
+        const expectedToken = this.sessionToken;
+
         // cmd=0 (hello) をブロードキャストアドレス:60000に送信
         const hello = this.createAppDataPacket(0, 0, Buffer.alloc(12));
         await this.sendPacket(hello, this.broadcastSocket, TCNET_BROADCAST_PORT, this.config.broadcastAddress);
+        if (this.sessionToken !== expectedToken) return;
 
         // 50ms待機してcmd=2 (認証) を送信
         await new Promise((r) => setTimeout(r, 50));
+        if (this.sessionToken !== expectedToken) return;
 
         const payload = await this.prepareAuthPayload();
+        if (this.sessionToken !== expectedToken) return;
         if (!payload) {
             this.resetAuthSession();
             return;
@@ -1104,6 +1112,12 @@ export class TCNetClient extends EventEmitter {
             return;
         }
 
+        // pending 中の cmd=1 再受信: 反応型プロトコルで cmd=2 を再送する
+        if (this._authState === "pending" && this.sessionToken !== null) {
+            this.handlePendingReauthRequest(packet);
+            return;
+        }
+
         // 継続認証: authenticated 状態で Bridge からの再認証要求が来た場合
         if (this._authState === "authenticated" && this.sessionToken !== null) {
             this.handleReauthRequest(packet);
@@ -1115,9 +1129,10 @@ export class TCNetClient extends EventEmitter {
      * @param packet - 受信した AppData cmd=1 パケット
      */
     private handleInitialAuthRequest(packet: nw.TCNetApplicationDataPacket): void {
-        this.sessionToken = packet.token;
+        const tokenForThisAttempt = packet.token;
+        this.sessionToken = tokenForThisAttempt;
         this._authState = "pending";
-        this.log?.debug(`Auth token received: ${this.formatToken(packet.token)}`);
+        this.log?.debug(`Auth token received: ${this.formatToken(tokenForThisAttempt)}`);
         this.authTimeoutId = setTimeout(() => {
             if (this._authState === "pending") {
                 this.log?.debug("TCNASDP authentication timed out");
@@ -1125,10 +1140,43 @@ export class TCNetClient extends EventEmitter {
             }
         }, AUTH_RESPONSE_TIMEOUT);
         this.sendAuthSequence().catch((err) => {
-            this.resetAuthSession();
+            // 現世代 (pending + 同一token) の失敗のみリセットする
+            // state=authenticated 遷移後の遅延 reject でセッションを破壊しないよう pending チェックを入れる
+            if (this._authState === "pending" && this.sessionToken === tokenForThisAttempt) {
+                this.resetAuthSession();
+            }
             const error = err instanceof Error ? err : new Error(String(err));
             this.log?.error(error);
         });
+    }
+
+    /**
+     * pending 中の cmd=1 再受信時の処理
+     * 同一 token なら cmd=2 のみ再送、token 変化時は認証世代を刷新する
+     * @param packet - 受信した AppData cmd=1 パケット
+     */
+    private handlePendingReauthRequest(packet: nw.TCNetApplicationDataPacket): void {
+        if (packet.token !== this.sessionToken) {
+            // token 変化は新しい認証世代として扱い、古い試行を完全にリセットしてから初回認証を再開する
+            // (古いタイマーが新世代を早期リセットするのを防ぐ。bridgeIsWindows はセッション間で保持)
+            this.log?.debug(
+                `Pending auth token changed, restarting: ${this.formatToken(this.sessionToken!)} -> ${this.formatToken(packet.token)}`,
+            );
+            this.resetAuthSession(true);
+            this.handleInitialAuthRequest(packet);
+            return;
+        }
+        this.log?.debug("cmd=1 in pending state, resending cmd=2");
+        this.sendAuthCommandOnly()
+            .then((sent) => {
+                if (!sent) {
+                    this.log?.warn("cmd=2 resend skipped during pending (prepareAuthPayload guard failed)");
+                }
+            })
+            .catch((err) => {
+                const error = err instanceof Error ? err : new Error(String(err));
+                this.log?.error(error);
+            });
     }
 
     /**

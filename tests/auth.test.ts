@@ -3,7 +3,13 @@ import { fnv1aInt32, generateAuthPayload, DATA_HASH } from "../src/auth";
 import { TCNetApplicationDataPacket, TCNetErrorPacket, TCNetMessageType } from "../src/network";
 import { TCNetClient, TCNetConfiguration, type TCNetLogger } from "../src/tcnet";
 import { writeValidHeader, createHeader, isolateXteaEnv } from "./helpers";
-import { AuthTestClient, AuthSequenceTestClient, flushAsync, APPDATA_CMD_OFFSET } from "./auth-test-helpers";
+import {
+    AuthTestClient,
+    AuthSequenceTestClient,
+    flushAsync,
+    APPDATA_CMD_OFFSET,
+    createAdapter,
+} from "./auth-test-helpers";
 
 isolateXteaEnv();
 
@@ -652,26 +658,6 @@ describe("TCNetApplicationDataPacket.write() payload長検証", () => {
 });
 
 describe("sendAuthSequence XTEA暗号文バイトリバース", () => {
-    /**
-     * テスト用アダプタ情報を生成する
-     * @param ip - IPv4アドレス文字列
-     */
-    function createAdapter(ip: string) {
-        return {
-            name: "test0",
-            addresses: [
-                {
-                    address: ip,
-                    netmask: "255.255.255.0",
-                    family: "IPv4" as const,
-                    mac: "00:00:00:00:00:00",
-                    internal: false,
-                    cidr: `${ip}/24`,
-                },
-            ],
-        };
-    }
-
     it("Windows Bridge判定時に暗号文がバイトリバースされて送信される", async () => {
         const client = new AuthSequenceTestClient("8ee0dc051b1ddf8b");
         client.setSessionToken(0xdeec6dfc);
@@ -741,22 +727,6 @@ describe("sendAuthSequence XTEA暗号文バイトリバース", () => {
 });
 
 describe("sendAuthCommandOnly (authenticated状態でのcmd=1応答)", () => {
-    function createAdapter(ip: string) {
-        return {
-            name: "test0",
-            addresses: [
-                {
-                    address: ip,
-                    netmask: "255.255.255.0",
-                    family: "IPv4" as const,
-                    mac: "00:00:00:00:00:00",
-                    internal: false,
-                    cidr: `${ip}/24`,
-                },
-            ],
-        };
-    }
-
     function makeClient(): AuthSequenceTestClient {
         const client = new AuthSequenceTestClient();
         client.setSessionToken(0xb3fe319e);
@@ -870,22 +840,6 @@ describe("sendAuthCommandOnly (authenticated状態でのcmd=1応答)", () => {
 });
 
 describe("sendAuthCommandOnly 連続失敗カウンタ", () => {
-    function createAdapter(ip: string) {
-        return {
-            name: "test0",
-            addresses: [
-                {
-                    address: ip,
-                    netmask: "255.255.255.0",
-                    family: "IPv4" as const,
-                    mac: "00:00:00:00:00:00",
-                    internal: false,
-                    cidr: `${ip}/24`,
-                },
-            ],
-        };
-    }
-
     function makeClient(logger?: TCNetLogger): AuthSequenceTestClient {
         const client = new AuthSequenceTestClient();
         client.setSessionToken(0xb3fe319e);
@@ -1032,5 +986,267 @@ describe("sendAuthCommandOnly 連続失敗カウンタ", () => {
         expect(warnMessage).toContain("0xcafebabe");
         // 実際に sessionToken も更新されている
         expect(client.getSessionToken()).toBe(0xcafebabe);
+    });
+});
+
+describe("pending状態でのcmd=1再受信 (初回認証中の反応型プロトコル)", () => {
+    function makePendingClient(logger?: TCNetLogger): AuthSequenceTestClient {
+        const client = new AuthSequenceTestClient();
+        client.setSessionToken(0xb3fe319e);
+        client.setAuthState("pending");
+        client.setBridgeIsWindows(false);
+        client.setSelectedAdapter(createAdapter("192.168.0.10"));
+        client.setBroadcastAddress("255.255.255.255");
+        if (logger) {
+            client.setLogger(logger);
+        }
+        return client;
+    }
+
+    it("pending状態でcmd=1を再受信するとcmd=2のみが再送される", async () => {
+        const client = makePendingClient();
+        const sentBuffers: Buffer[] = [];
+        client.setBroadcastSocket({
+            send: vi.fn((buf: Buffer, _port: number, _addr: string, cb: (err: Error | null) => void) => {
+                sentBuffers.push(Buffer.from(buf));
+                cb(null);
+            }),
+        });
+
+        client.callHandleAuth(createAppDataPacket(1, 0xb3fe319e));
+        await flushAsync();
+
+        expect(sentBuffers.length).toBe(1);
+        expect(sentBuffers[0][APPDATA_CMD_OFFSET]).toBe(2);
+        expect(client.authenticationState).toBe("pending");
+        expect(client.getSessionToken()).toBe(0xb3fe319e);
+    });
+
+    it("pending中の連続cmd=1で毎回cmd=2を応答する (Bridge flood対応)", async () => {
+        const client = makePendingClient();
+        const sentBuffers: Buffer[] = [];
+        client.setBroadcastSocket({
+            send: vi.fn((buf: Buffer, _port: number, _addr: string, cb: (err: Error | null) => void) => {
+                sentBuffers.push(Buffer.from(buf));
+                cb(null);
+            }),
+        });
+
+        for (let i = 0; i < 10; i++) {
+            client.callHandleAuth(createAppDataPacket(1, 0xb3fe319e));
+        }
+        await flushAsync();
+
+        expect(sentBuffers.length).toBe(10);
+        for (const buf of sentBuffers) {
+            expect(buf[APPDATA_CMD_OFFSET]).toBe(2);
+        }
+        expect(client.authenticationState).toBe("pending");
+        expect(client.getSessionToken()).toBe(0xb3fe319e);
+    });
+
+    it("pending中のtoken変化時は初回認証フロー(sendAuthSequence)が再起動される", async () => {
+        const client = makePendingClient();
+        const sendSequenceMock = vi.fn().mockResolvedValue(undefined);
+        client.setSendAuthSequenceMock(sendSequenceMock);
+        client.setBroadcastSocket({
+            send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: (err: Error | null) => void) => {
+                cb(null);
+            }),
+        });
+
+        client.callHandleAuth(createAppDataPacket(1, 0xcafebabe));
+        await flushAsync();
+
+        expect(sendSequenceMock).toHaveBeenCalledTimes(1);
+        expect(client.getSessionToken()).toBe(0xcafebabe);
+        expect(client.authenticationState).toBe("pending");
+    });
+
+    it("pending中の同一tokenではsendAuthSequenceは呼ばれない (高速パス)", async () => {
+        const client = makePendingClient();
+        const sendSequenceMock = vi.fn().mockRejectedValue(new Error("should not be called"));
+        client.setSendAuthSequenceMock(sendSequenceMock);
+        client.setBroadcastSocket({
+            send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: (err: Error | null) => void) => {
+                cb(null);
+            }),
+        });
+
+        client.callHandleAuth(createAppDataPacket(1, 0xb3fe319e));
+        await flushAsync();
+
+        expect(sendSequenceMock).not.toHaveBeenCalled();
+    });
+
+    it("pending中のtoken変化時は古いauthTimeoutIdがクリアされ新タイマーが起動する", async () => {
+        // 古いタイマーが新世代を早期リセットする Codex#2 回帰テスト
+        vi.useFakeTimers();
+        try {
+            const client = new AuthSequenceTestClient();
+            const sendSequenceMock = vi.fn().mockResolvedValue(undefined);
+            client.setSendAuthSequenceMock(sendSequenceMock);
+            client.setBridgeIsWindows(false);
+            client.setSelectedAdapter(createAdapter("192.168.0.10"));
+            client.setBroadcastAddress("255.255.255.255");
+            client.setBroadcastSocket({
+                send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()),
+            });
+
+            // 初回 cmd=1 (token A): pending + 5秒タイマー起動
+            client.callHandleAuth(createAppDataPacket(1, 0xaaaaaaaa));
+            expect(client.authenticationState).toBe("pending");
+            expect(client.getSessionToken()).toBe(0xaaaaaaaa);
+
+            // 4.9 秒経過 (古いタイマー発火直前)
+            await vi.advanceTimersByTimeAsync(4900);
+            expect(client.authenticationState).toBe("pending");
+
+            // token B の cmd=1 受信: 認証世代を刷新
+            client.callHandleAuth(createAppDataPacket(1, 0xbbbbbbbb));
+            await flushAsync();
+            expect(client.getSessionToken()).toBe(0xbbbbbbbb);
+            expect(client.authenticationState).toBe("pending");
+            expect(sendSequenceMock).toHaveBeenCalledTimes(2);
+
+            // さらに 0.2 秒経過 (古いタイマーなら 5.1 秒で発火するタイミング)
+            await vi.advanceTimersByTimeAsync(200);
+            expect(client.authenticationState).toBe("pending");
+            expect(client.getSessionToken()).toBe(0xbbbbbbbb);
+
+            // 新タイマーの 5秒後に発火すると state=none になる (残り 4.8 秒)
+            await vi.advanceTimersByTimeAsync(4800);
+            expect(client.authenticationState).toBe("none");
+            expect(client.getSessionToken()).toBeNull();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("pending中のcmd=2送信失敗でもpending状態とsessionTokenは維持される", async () => {
+        const client = makePendingClient();
+        client.setBroadcastSocket({
+            send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: (err: Error | null) => void) => {
+                cb(new Error("send failed"));
+            }),
+        });
+
+        client.callHandleAuth(createAppDataPacket(1, 0xb3fe319e));
+        await flushAsync();
+
+        expect(client.authenticationState).toBe("pending");
+        expect(client.getSessionToken()).toBe(0xb3fe319e);
+        // pending 中の失敗は継続認証フローとは独立で failureCount に影響しない
+        expect(client.getAuthResponseFailureCount()).toBe(0);
+    });
+
+    it("authenticated遷移後にsendAuthSequenceが遅延rejectしても認証済みセッションは破壊されない", async () => {
+        // Codex P1#1 回帰: 新 pending fast-path で sendAuthCommandOnly が
+        // Error(0xffffff) 受信により state=authenticated に遷移した後、
+        // 元の sendAuthSequence() promise が遅延 reject した場合、
+        // handleInitialAuthRequest の catch が token 一致だけで resetAuthSession を
+        // 呼んでしまうと authenticated セッションを破壊してしまう。
+        // 修正後は state === "pending" のチェックも追加して破壊を防ぐ。
+        vi.useFakeTimers();
+        try {
+            const client = new AuthSequenceTestClient();
+            client.setSelectedAdapter(createAdapter("192.168.0.10"));
+            client.setBroadcastAddress("255.255.255.255");
+            client.setBroadcastSocket({
+                send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()),
+            });
+
+            // sendAuthSequence が prepareAuthPayload 内の detectBridgeIsWindows await で停止するようにする
+            let rejectDetection!: (reason: Error) => void;
+            const detectionPromise = new Promise<boolean>((_resolve, reject) => {
+                rejectDetection = reject;
+            });
+            vi.spyOn(
+                client as unknown as { detectBridgeIsWindows: () => Promise<boolean> },
+                "detectBridgeIsWindows",
+            ).mockReturnValue(detectionPromise);
+
+            // 初回 cmd=1 (token A): pending + sendAuthSequence 起動
+            client.callHandleAuth(createAppDataPacket(1, 0xaaaaaaaa));
+            expect(client.authenticationState).toBe("pending");
+            await vi.advanceTimersByTimeAsync(50);
+            await flushAsync();
+            // sendAuthSequence は detectBridgeIsWindows の await で停止中
+
+            // Error(0xffffff) 受信で authenticated に遷移 (他経路で認証が完了した状況を再現)
+            client.callHandleAuth(createErrorPacket(0xff, 0xff, 0xff));
+            expect(client.authenticationState).toBe("authenticated");
+
+            // 元の sendAuthSequence を rejection で終わらせる (送信エラー等を模擬)
+            rejectDetection(new Error("stale detect rejection"));
+            await flushAsync(10);
+
+            // authenticated が維持されていること (catch の pending ガードが機能)
+            expect(client.authenticationState).toBe("authenticated");
+            expect(client.getSessionToken()).toBe(0xaaaaaaaa);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("pending中のtoken変化時は旧sendAuthSequenceが新世代のstateを破壊しない (stale promise race)", async () => {
+        // stale Promise race の真の回帰検知テスト。
+        // detectBridgeIsWindows を controllable promise でモックし、旧 sendAuthSequence
+        // を prepareAuthPayload 内部の await で確実に停止させた状態で token を切り替える。
+        // これにより旧 run の prepareAuthPayload が null を返す経路に到達し、
+        // expectedToken ガードが無いと resetAuthSession() を呼んで新世代の state を破壊する。
+        vi.useFakeTimers();
+        try {
+            const client = new AuthSequenceTestClient();
+            client.setSelectedAdapter(createAdapter("192.168.0.10"));
+            client.setBroadcastAddress("255.255.255.255");
+            client.setBroadcastSocket({
+                send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()),
+            });
+
+            // detectBridgeIsWindows を手動制御可能な Promise に差し替える
+            let resolveDetection!: (value: boolean) => void;
+            const detectionPromise = new Promise<boolean>((resolve) => {
+                resolveDetection = resolve;
+            });
+            vi.spyOn(
+                client as unknown as { detectBridgeIsWindows: () => Promise<boolean> },
+                "detectBridgeIsWindows",
+            ).mockReturnValue(detectionPromise);
+
+            // 初回 cmd=1 (token A): handleInitialAuthRequest → sendAuthSequence 起動
+            client.callHandleAuth(createAppDataPacket(1, 0xaaaaaaaa));
+            expect(client.getSessionToken()).toBe(0xaaaaaaaa);
+            expect(client.authenticationState).toBe("pending");
+
+            // cmd=0 送信の microtask を消化し、50ms wait を進めて prepareAuthPayload 内の
+            // detectBridgeIsWindows await まで到達させる
+            await vi.advanceTimersByTimeAsync(50);
+            await flushAsync();
+
+            // token B の cmd=1 受信: handlePendingReauthRequest → resetAuthSession(true)
+            //   + handleInitialAuthRequest(B) で新世代開始。
+            //   新 sendAuthSequence も detectBridgeIsWindows の同じ pending promise を待機する
+            client.callHandleAuth(createAppDataPacket(1, 0xbbbbbbbb));
+            expect(client.getSessionToken()).toBe(0xbbbbbbbb);
+            expect(client.authenticationState).toBe("pending");
+
+            // 新世代の 50ms wait も消化して detectBridgeIsWindows await まで到達させる
+            await vi.advanceTimersByTimeAsync(50);
+            await flushAsync();
+
+            // detectionPromise を resolve し、旧・新の両方を再開させる
+            //   旧 run: tokenBeforePing=A !== sessionToken=B → prepareAuthPayload null 返却
+            //            → expectedToken ガードで resetAuthSession を呼ばずに return
+            //   新 run: tokenBeforePing=B === sessionToken=B → payload 生成 → cmd=2 送信
+            resolveDetection(false);
+            await flushAsync(10);
+
+            // 新世代の state が維持されていることを検証 (旧 run が resetAuthSession を呼ばなかった証左)
+            expect(client.getSessionToken()).toBe(0xbbbbbbbb);
+            expect(client.authenticationState).toBe("pending");
+        } finally {
+            vi.useRealTimers();
+        }
     });
 });
