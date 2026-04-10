@@ -35,4 +35,3 @@ docs-dist/
 
 # Environment variables
 .env
-.env.e2e

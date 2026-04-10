@@ -52,7 +52,7 @@ Git hookをlefthookで管理している。`npx lefthook install`で有効化さ
 | ├ format | `**/*.{ts,js,mjs,json,jsonc}` | Prettierによる自動整形 |
 | └ lint | `**/*.ts` (`.d.ts`除外) | ESLint |
 | typecheck | `**/*.ts`, `tsconfig.json` | `tsc --noEmit` |
-| test | `**/*.ts` (`.d.ts`除外) | vitest実行 (ユニットテストのみ、E2E除外) |
+| test | `**/*.ts` (`.d.ts`除外) | vitest実行 |
 | build | `**/*.ts`, `tsconfig.json` | tsupビルド |
 | markdownlint | `**/*.{md,MD}` (`CHANGELOG.md`除外) | markdownlint |
 | textlint | `docs/wiki/**/*.md`, `README.MD` | textlint |
@@ -105,42 +105,6 @@ npm run test
 ```
 
 モックベースのユニットテストを実行する。pre-commitフックで自動実行される。
-
-### E2Eテスト (実機テスト)
-
-```bash
-npm run test:e2e
-```
-
-実機のPro DJ Link Bridgeとネットワーク接続を使用するE2Eテストを実行する。テストスクリプトがBridgeの起動・停止を自動制御する。
-
-#### 前提条件
-
-- Windows環境であること(Bridgeプロセス管理にtasklist/taskkillを使用するため)。
-- [Pro DJ Link Bridge](https://www.pioneerdj.com/ja-jp/landing/pro-dj-link-bridge/)がインストール済みであること。
-- TCNet対応機器(CDJ等)がネットワーク上に存在すること。
-- テスト実行前にBridgeが停止していること(テストが自動起動する)。
-
-#### 設定カスタマイズ
-
-プロジェクトルートに`.env.e2e`ファイルを作成して設定を上書きできる。`.env.e2e.example`をテンプレートとして参照。
-
-| 設定項目 | デフォルト値 | 説明 |
-| --- | --- | --- |
-| `TCNET_BRIDGE_PATH` | `C:\Program Files\AlphaTheta\PRO DJ LINK Bridge\PRO DJ LINK Bridge.exe` | Bridge実行ファイルのパス |
-| `TCNET_TEST_INTERFACE` | (自動検出) | テスト対象のネットワークインターフェース名 |
-
-#### CIでの実行
-
-E2EテストはネットワークアダプタとPro DJ Link Bridgeに依存するため、CI環境では実行できない。ローカル環境でのみ実行する。
-
-#### トラブルシューティング
-
-| 症状 | 対処 |
-| --- | --- |
-| Bridge起動タイムアウト | Bridgeのインストールパスを確認する。`.env.e2e`で`TCNET_BRIDGE_PATH`を設定する |
-| ポート競合 | 他のTCNetアプリケーションが起動していないか確認する |
-| アダプタ検出失敗 | `.env.e2e`で`TCNET_TEST_INTERFACE`を明示指定する |
 
 ## PR作成
 
