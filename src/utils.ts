@@ -95,6 +95,18 @@ export function findIPv4Address(adapter: NetworkAdapterInfo): NetworkAdapterAddr
 }
 
 /**
+ * クラスタデータの終了位置を算出する
+ * clusterSizeが0の場合(Fileパケット)はバッファ末尾を返す
+ * @param bufferLength - バッファ全体の長さ
+ * @param dataStart - データ開始オフセット
+ * @param clusterSize - クラスタサイズ (0の場合はバッファ末尾)
+ * @returns データ終了位置
+ */
+export function getClusterEnd(bufferLength: number, dataStart: number, clusterSize: number): number {
+    return clusterSize > 0 ? Math.min(dataStart + clusterSize, bufferLength) : bufferLength;
+}
+
+/**
  * システム上のネットワークアダプタ一覧を返す
  * @returns ネットワークアダプタ情報の配列
  * @category Utilities

@@ -4,7 +4,14 @@ import { execFile } from "child_process";
 import { platform } from "os";
 import * as nw from "./network";
 import { MultiPacketAssembler } from "./multi-packet";
-import { interfaceAddress, listNetworkAdapters, findIPv4Address, ipToNumber, type NetworkAdapterInfo } from "./utils";
+import {
+    interfaceAddress,
+    listNetworkAdapters,
+    findIPv4Address,
+    ipToNumber,
+    getClusterEnd,
+    type NetworkAdapterInfo,
+} from "./utils";
 import { generateAuthPayload, type AuthState } from "./auth";
 
 const TCNET_BROADCAST_PORT = 60000;
@@ -611,7 +618,7 @@ export class TCNetClient extends EventEmitter {
         const dataStart = 42;
         if (msg.length > dataStart) {
             const clusterSize = msg.readUInt32LE(38);
-            const end = clusterSize > 0 ? Math.min(dataStart + clusterSize, msg.length) : msg.length;
+            const end = getClusterEnd(msg.length, dataStart, clusterSize);
             pendingRequest.fileChunks.push(Buffer.from(msg.slice(dataStart, end)));
         }
         // fileCollectionTimeoutをリセットする (最後のパケットから200msで完了判定)

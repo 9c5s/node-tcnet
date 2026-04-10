@@ -1,4 +1,4 @@
-import { assert } from "./utils";
+import { assert, getClusterEnd } from "./utils";
 import type {
     ArtworkData,
     CueData,
@@ -911,8 +911,7 @@ export class TCNetDataPacketArtwork extends TCNetDataPacket {
             return;
         }
         const clusterSize = this.buffer.readUInt32LE(38);
-        // FileパケットではclusterSizeが0のため、バッファ末尾までをデータとして扱う
-        const end = clusterSize > 0 ? Math.min(dataStart + clusterSize, this.buffer.length) : this.buffer.length;
+        const end = getClusterEnd(this.buffer.length, dataStart, clusterSize);
         this.data = { jpeg: Buffer.from(this.buffer.slice(dataStart, end)) };
     }
 

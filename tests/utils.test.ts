@@ -10,7 +10,14 @@ vi.mock("os", async () => {
 });
 
 import { networkInterfaces } from "os";
-import { assert, interfaceAddress, findIPv4Address, listNetworkAdapters, ipToNumber } from "../src/utils";
+import {
+    assert,
+    interfaceAddress,
+    findIPv4Address,
+    listNetworkAdapters,
+    ipToNumber,
+    getClusterEnd,
+} from "../src/utils";
 import type { NetworkAdapterInfo } from "../src/utils";
 
 describe("assert", () => {
@@ -346,5 +353,19 @@ describe("findIPv4Address", () => {
             addresses: [],
         };
         expect(findIPv4Address(adapter)).toBeUndefined();
+    });
+});
+
+describe("getClusterEnd", () => {
+    it("clusterSize>0の場合、dataStart+clusterSizeを返す", () => {
+        expect(getClusterEnd(100, 42, 50)).toBe(92);
+    });
+
+    it("clusterSize=0の場合、bufferLengthを返す", () => {
+        expect(getClusterEnd(100, 42, 0)).toBe(100);
+    });
+
+    it("dataStart+clusterSizeがbufferLengthを超える場合、bufferLengthを返す", () => {
+        expect(getClusterEnd(50, 42, 100)).toBe(50);
     });
 });
