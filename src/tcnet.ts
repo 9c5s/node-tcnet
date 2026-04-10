@@ -25,6 +25,8 @@ type STORED_REQUEST = {
     assembler?: MultiPacketAssembler;
     // FileパケットでtotalPackets=0の場合、パケットを順次蓄積しタイムアウトでアセンブルする
     fileChunks?: Buffer[];
+    /** fileChunks蓄積済みバイト数。maxFileChunkBytes超過時にrejectする */
+    fileChunksSize?: number;
     // fileChunks蓄積の全体上限タイマー (requestTimeoutで打ち切る)
     fileChunksDeadline?: NodeJS.Timeout;
 };
@@ -66,6 +68,8 @@ export class TCNetConfiguration {
      * 200msはBridge実機での連続Fileパケット送信間隔(数msから数十ms)を観測して決定した値であり、安全マージンを確保している
      */
     fileCollectionTimeout = 200;
+    /** fileChunks蓄積の最大バイト数。超過時はrejectする */
+    maxFileChunkBytes = 10 * 1024 * 1024; // 10MB
     detectionTimeout = 5000;
     switchRetryCount = 3;
     switchRetryInterval = 1000;
@@ -367,15 +371,27 @@ export class TCNetClient extends EventEmitter {
      * @returns アダプタ名。該当なしの場合はnull
      */
     private resolveAdapterByRemoteAddress(remoteAddress: string): string | null {
-        const remoteNum = ipToNumber(remoteAddress);
-        for (const [name, adapter] of this.adapterMap) {
-            const ipv4 = findIPv4Address(adapter);
-            if (!ipv4) continue;
-            const mask = ipToNumber(ipv4.netmask);
-            const localNet = ipToNumber(ipv4.address) & mask;
-            if ((remoteNum & mask) === localNet) return name;
+        try {
+            const remoteNum = ipToNumber(remoteAddress);
+            let matchedName: string | null = null;
+            for (const [name, adapter] of this.adapterMap) {
+                const ipv4 = findIPv4Address(adapter);
+                if (!ipv4) continue;
+                const mask = ipToNumber(ipv4.netmask);
+                const localNet = ipToNumber(ipv4.address) & mask;
+                if ((remoteNum & mask) === localNet) {
+                    if (matchedName !== null) {
+                        // 複数アダプタが同一サブネットにマッチ: 曖昧なため null を返す
+                        this.log?.debug(`Ambiguous adapter match for ${remoteAddress}: ${matchedName} and ${name}`);
+                        return null;
+                    }
+                    matchedName = name;
+                }
+            }
+            return matchedName;
+        } catch {
+            return null;
         }
-        return null;
     }
 
     /**
@@ -532,7 +548,16 @@ export class TCNetClient extends EventEmitter {
                         // 検出中 (connect()経由): アダプタ収束
                         this.convergeToAdapter(adapterName, rinfo, packet.nodeListenerPort);
                     } else if (!this.connected && !this.detectingAdapter) {
-                        // 単一アダプタ接続中 (connectToAdapter()経由): waitConnected解決
+                        // 単一アダプタ接続中: selectedAdapterのサブネット外からのMasterを無視する
+                        if (this._selectedAdapter) {
+                            const ipv4 = findIPv4Address(this._selectedAdapter);
+                            if (ipv4) {
+                                const mask = ipToNumber(ipv4.netmask);
+                                const localNet = ipToNumber(ipv4.address) & mask;
+                                const remoteNet = ipToNumber(rinfo.address) & mask;
+                                if (localNet !== remoteNet) return;
+                            }
+                        }
                         this.server = rinfo;
                         this.server.port = packet.nodeListenerPort;
                         this.connected = true;
@@ -604,6 +629,7 @@ export class TCNetClient extends EventEmitter {
     ): void {
         if (!pendingRequest.fileChunks) {
             pendingRequest.fileChunks = [];
+            pendingRequest.fileChunksSize = 0;
             // requestTimeoutを全体の上限タイマーとして設定する
             // fileCollectionTimeoutのリセットでは影響を受けない
             pendingRequest.fileChunksDeadline = setTimeout(() => {
@@ -615,11 +641,25 @@ export class TCNetClient extends EventEmitter {
                 }
             }, this.config.requestTimeout);
         }
+        // TCNetデータパケットヘッダー後のペイロード開始位置
         const dataStart = 42;
         if (msg.length > dataStart) {
+            // clusterSize: マルチパケットヘッダーのoffset 38 (4バイトLE)
             const clusterSize = msg.readUInt32LE(38);
             const end = getClusterEnd(msg.length, dataStart, clusterSize);
-            pendingRequest.fileChunks.push(Buffer.from(msg.slice(dataStart, end)));
+            const chunk = Buffer.from(msg.slice(dataStart, end));
+            pendingRequest.fileChunksSize = (pendingRequest.fileChunksSize ?? 0) + chunk.length;
+            if (pendingRequest.fileChunksSize > this.config.maxFileChunkBytes) {
+                if (this.requests.delete(key)) {
+                    clearTimeout(pendingRequest.timeout);
+                    if (pendingRequest.fileChunksDeadline) clearTimeout(pendingRequest.fileChunksDeadline);
+                    pendingRequest.fileChunks = undefined;
+                    pendingRequest.assembler?.reset();
+                    pendingRequest.reject(new Error("File chunk size limit exceeded"));
+                }
+                return;
+            }
+            pendingRequest.fileChunks.push(chunk);
         }
         // fileCollectionTimeoutをリセットする (最後のパケットから200msで完了判定)
         clearTimeout(pendingRequest.timeout);
