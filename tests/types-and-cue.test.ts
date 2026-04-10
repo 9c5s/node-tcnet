@@ -115,6 +115,45 @@ describe("TCNetDataPacketCUE", () => {
         expect(packet.data!.cues).toHaveLength(0);
     });
 
+    it("CueDataにloopOutTimeが含まれない(byte46-49がCUE1と重複するため)", () => {
+        const buffer = Buffer.alloc(436);
+        buffer.writeUInt8(3, 2);
+        buffer.write("TCN", 4, "ascii");
+        buffer.writeUInt8(200, 7);
+        buffer.writeUInt8(12, 24);
+        buffer.writeUInt8(1, 25);
+        buffer.writeUInt32LE(1000, 42); // loopInTime
+
+        const packet = new TCNetDataPacketCUE();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+
+        expect(packet.data).not.toHaveProperty("loopOutTime");
+        expect(packet.data!.loopInTime).toBe(1000);
+    });
+
+    it("inTime=0だがoutTime>0のCUEエントリはスキップしない", () => {
+        const buffer = Buffer.alloc(436);
+        buffer.writeUInt8(3, 2);
+        buffer.write("TCN", 4, "ascii");
+        buffer.writeUInt8(200, 7);
+        buffer.writeUInt8(12, 24);
+        buffer.writeUInt8(1, 25);
+        // CUE 1 at byte 47: type=1, inTime=0, outTime=5000
+        buffer.writeUInt8(1, 47);
+        buffer.writeUInt32LE(0, 49); // inTime = 0
+        buffer.writeUInt32LE(5000, 53); // outTime = 5000
+
+        const packet = new TCNetDataPacketCUE();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+
+        expect(packet.data!.cues).toHaveLength(1);
+        expect(packet.data!.cues[0].outTime).toBe(5000);
+    });
+
     it("バッファの有効範囲内の全CUEスロット(17エントリ)が読み取られる", () => {
         // バッファ436バイトで読める有効スロットは i=0 から 16 の 17 エントリである
         // (i=17 は offset=47+17*22=421、offset+22=443>436 で break する)

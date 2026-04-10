@@ -630,10 +630,9 @@ export class TCNetDataPacketCUE extends TCNetDataPacket {
     /** バッファからパケットデータを読み取る */
     read(): void {
         const loopInTime = this.buffer.readUInt32LE(42);
-        const loopOutTime = this.buffer.readUInt32LE(46);
+        // byte 46-49 (Loop OUT Time) はCUE 1開始(byte 47)と重複するため読み取らない
+        // CUE 1にデータがあるとloopOutTimeは汚染された値になる
         const cues: CuePoint[] = [];
-        // 仕様書通り CUE 1 開始は byte 47 (実機ダンプで検証済み)
-        // Loop OUT Time (byte 46-49) と重複するが、仕様書の記載通りに実装する
         const cueStart = 47;
         for (let i = 0; i < 18; i++) {
             const offset = cueStart + i * 22;
@@ -656,7 +655,7 @@ export class TCNetDataPacketCUE extends TCNetDataPacket {
                 },
             });
         }
-        this.data = { loopInTime, loopOutTime, cues };
+        this.data = { loopInTime, cues };
     }
 
     /** パケットデータをバッファに書き込む */

@@ -16,7 +16,6 @@ export type CuePoint = {
  */
 export type CueData = {
     loopInTime: number;
-    loopOutTime: number;
     cues: CuePoint[];
 };
 
