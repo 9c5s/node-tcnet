@@ -16,6 +16,7 @@ concurrency:
 jobs:
   ci-checks:
     name: CI Checks
+    if: github.head_ref != 'changeset-release/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read # リポジトリのチェックアウトに必要
@@ -24,7 +25,6 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
-          fetch-depth: 2
 
       - name: Setup Node.js
         uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
@@ -38,6 +38,9 @@ jobs:
       - name: Build
         run: npm run build
 
+      - name: Typecheck
+        run: npm run typecheck
+
       - name: Test
         run: npm run test
 
@@ -47,5 +50,8 @@ jobs:
       - name: Check formatting
         run: npm run format:check
 
-      - name: Build docs
-        run: npm run docs
+      - name: Markdownlint
+        run: npm run mdlint
+
+      - name: Textlint
+        run: npm run textlint
