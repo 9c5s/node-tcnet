@@ -50,6 +50,14 @@ export class TestTCNetClient extends TCNetClient {
     ): void {
         (this as any).receiveBroadcast(msg, rinfo, adapterName);
     }
+    /**
+     * テスト用にブロードキャストソケットとアドレスを設定する
+     * @param mockSocket - モックソケットオブジェクト
+     */
+    public configureMockBroadcast(mockSocket: any): void {
+        (this as any).broadcastSocket = mockSocket;
+        (this as any).config.broadcastAddress = "255.255.255.255";
+    }
 }
 
 /**

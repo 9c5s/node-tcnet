@@ -146,7 +146,8 @@ describe("TCNetDataPacketType レジストリ", () => {
 });
 
 describe("receiveUnicast Artwork マルチパケット", () => {
-    // fake timers を使うテストで、アサーション失敗時にも実時間タイマーに復帰させるための保険
+    // vi.useFakeTimers() を使うテストの失敗時にも実時間に復帰させる保険
+    // 各テスト内で個別に vi.useFakeTimers() を呼び出す
     afterEach(() => {
         vi.useRealTimers();
     });
@@ -158,8 +159,7 @@ describe("receiveUnicast Artwork マルチパケット", () => {
         const mockSocket = {
             send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()),
         };
-        (client as any).broadcastSocket = mockSocket;
-        (client as any).config.broadcastAddress = "255.255.255.255";
+        client.configureMockBroadcast(mockSocket);
 
         const promise = client.requestData(nw.TCNetDataPacketType.ArtworkData, 0);
 
@@ -188,10 +188,10 @@ describe("receiveUnicast Artwork マルチパケット", () => {
 
     it("3パケットアセンブル後のJPEGが各チャンクを順序通り連結した内容になる", async () => {
         const artwork = await receiveThreePacketArtwork();
-        // 各チャンクの先頭バイトが期待位置にあることを検証する
-        expect(artwork.data!.jpeg[0]).toBe(0xff); // chunk1
-        expect(artwork.data!.jpeg[2400]).toBe(0xd8); // chunk2
-        expect(artwork.data!.jpeg[4800]).toBe(0xe0); // chunk3
+        // 各チャンク境界の先頭バイトを検証し、連結順序が正しいことを確認する
+        expect(artwork.data!.jpeg[0]).toBe(0xff); // chunk1 先頭
+        expect(artwork.data!.jpeg[2400]).toBe(0xd8); // chunk2 先頭
+        expect(artwork.data!.jpeg[4800]).toBe(0xe0); // chunk3 先頭
     });
 
     it("totalPackets=0 の単一 File パケットがタイムアウトベースで resolve する", async () => {
@@ -199,8 +199,7 @@ describe("receiveUnicast Artwork マルチパケット", () => {
         const client = new TestTCNetClient();
         client.simulateConnected();
         const mockSocket = { send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()) };
-        (client as any).broadcastSocket = mockSocket;
-        (client as any).config.broadcastAddress = "255.255.255.255";
+        client.configureMockBroadcast(mockSocket);
 
         const promise = client.requestData(nw.TCNetDataPacketType.ArtworkData, 0);
 
@@ -232,8 +231,7 @@ describe("receiveUnicast Artwork マルチパケット", () => {
         const client = new TestTCNetClient();
         client.simulateConnected();
         const mockSocket = { send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()) };
-        (client as any).broadcastSocket = mockSocket;
-        (client as any).config.broadcastAddress = "255.255.255.255";
+        client.configureMockBroadcast(mockSocket);
 
         const promise = client.requestData(nw.TCNetDataPacketType.ArtworkData, 0);
 
@@ -271,8 +269,7 @@ describe("receiveUnicast Artwork マルチパケット", () => {
         const client = new TestTCNetClient();
         client.simulateConnected();
         const mockSocket = { send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()) };
-        (client as any).broadcastSocket = mockSocket;
-        (client as any).config.broadcastAddress = "255.255.255.255";
+        client.configureMockBroadcast(mockSocket);
 
         const promise = client.requestData(nw.TCNetDataPacketType.ArtworkData, 0);
 
@@ -295,8 +292,7 @@ describe("receiveUnicast Artwork マルチパケット", () => {
         const client = new TestTCNetClient();
         client.simulateConnected();
         const mockSocket = { send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()) };
-        (client as any).broadcastSocket = mockSocket;
-        (client as any).config.broadcastAddress = "255.255.255.255";
+        client.configureMockBroadcast(mockSocket);
 
         const handler = vi.fn();
         client.on("data", handler);
@@ -323,8 +319,7 @@ describe("receiveUnicast Artwork マルチパケット", () => {
         const client = new TestTCNetClient();
         client.simulateConnected();
         const mockSocket = { send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()) };
-        (client as any).broadcastSocket = mockSocket;
-        (client as any).config.broadcastAddress = "255.255.255.255";
+        client.configureMockBroadcast(mockSocket);
         (client as any).config.requestTimeout = 500;
 
         const promise = client.requestData(nw.TCNetDataPacketType.ArtworkData, 0);
@@ -347,8 +342,7 @@ describe("receiveUnicast Artwork マルチパケット", () => {
         const client = new TestTCNetClient();
         client.simulateConnected();
         const mockSocket = { send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()) };
-        (client as any).broadcastSocket = mockSocket;
-        (client as any).config.broadcastAddress = "255.255.255.255";
+        client.configureMockBroadcast(mockSocket);
 
         // 1回目のリクエスト (応答なしで放置)
         const promise1 = client.requestData(nw.TCNetDataPacketType.ArtworkData, 0);
