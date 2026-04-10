@@ -7,7 +7,7 @@
     "excludeInternal": true,
     "out": "docs-dist",
     "githubPages": true,
-    "readme": "README.MD",
+    "readme": "README.md",
     "name": "@9c5s/node-tcnet",
     "hideGenerator": true,
     "navigation": {

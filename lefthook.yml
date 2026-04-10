@@ -46,12 +46,12 @@ pre-commit:
 
     # Markdown
     - name: markdownlint
-      glob: "**/*.{md,MD}"
+      glob: "**/*.md"
       exclude: 'CHANGELOG\.md'
       run: npx markdownlint-cli2 {staged_files}
 
     - name: textlint
-      glob: "{docs/wiki/**/*.md,README.MD}"
+      glob: "{docs/wiki/**/*.md,README.md}"
       run: npx textlint {staged_files}
 
     # GitHub Actions (zizmor --fix → actionlint は逐次実行)

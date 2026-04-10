@@ -15,7 +15,6 @@ TCNetは、エンターテイメント業界向けに設計されたオープン
 
 - [[TCNet Protocol]] -- プロトコル仕様の要約
 - [[Implementation Status]] -- 実装状況と既知の制限
-- [[Contributing]] -- 開発への参加方法
 
 ## 関連リンク
 
