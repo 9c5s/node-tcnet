@@ -158,6 +158,7 @@ MessageType=200のData内のサブタイプ。
 | BPM | 100倍値(UInt32LE) | 12000 = 120.00 BPM |
 | Speed | 32768 = 100%, 0 = 0%, 65536 = 200%(UInt32LE) | 32768 = 100% |
 | Pitch Bend | UInt16LE(0-65535, 32768=100%) | 32768 = 100% |
+| WaveformBar | 2バイト/バー: byte[i]=BColor, byte[i+1]=BLevel。仕様書の「奇数/偶数バイト」は0-originオフセットを指す(実機検証済み) | [Color, Level] 順 |
 | Layer ID | 1-based(1=Layer1 ... 8=LayerC) | ワイヤ上の1がAPI上の0に対応 |
 | MetaDataテキスト | V3.5.0+はUTF-16LE、V3.4以前はUTF-8(各256バイト) | -- |
 

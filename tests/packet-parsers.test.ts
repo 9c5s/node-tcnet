@@ -579,28 +579,23 @@ describe("TCNetDataPacketMetrics", () => {
         expect(new TCNetDataPacketMetrics().length()).toBe(122);
     });
 
-    it("pitchBendの境界値を正しくパースする", () => {
+    it.each([
+        { value: 0, label: "最小値" },
+        { value: 32768, label: "100%基準" },
+        { value: 65535, label: "最大値" },
+    ])("pitchBend=$value ($label) を正しくパースする", ({ value }) => {
         const buffer = Buffer.alloc(122);
         buffer.writeUInt8(3, 2);
         buffer.write("TCN", 4, "ascii");
         buffer.writeUInt8(200, 7);
         buffer.writeUInt8(2, 24);
         buffer.writeUInt8(1, 25);
+        buffer.writeUInt16LE(value, 116);
         const packet = new TCNetDataPacketMetrics();
         packet.buffer = buffer;
         packet.header = createHeader(buffer);
-
-        buffer.writeUInt16LE(0, 116);
         packet.read();
-        expect(packet.data!.pitchBend).toBe(0);
-
-        buffer.writeUInt16LE(32768, 116);
-        packet.read();
-        expect(packet.data!.pitchBend).toBe(32768);
-
-        buffer.writeUInt16LE(65535, 116);
-        packet.read();
-        expect(packet.data!.pitchBend).toBe(65535);
+        expect(packet.data!.pitchBend).toBe(value);
     });
 });
 

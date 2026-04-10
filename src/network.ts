@@ -539,19 +539,29 @@ export type TCNetLayerSyncMaster = (typeof TCNetLayerSyncMaster)[keyof typeof TC
  * メトリクスデータパケット (BPM/速度/位置等)
  * @category Data Packets
  */
+/**
+ * Metricsデータの構造を表す型
+ * @category Types
+ */
+export type MetricsData = {
+    state: TCNetLayerStatus;
+    syncMaster: TCNetLayerSyncMaster;
+    beatMarker: number;
+    trackLength: number;
+    currentPosition: number;
+    speed: number;
+    beatNumber: number;
+    bpm: number;
+    pitchBend: number;
+    trackID: number;
+};
+
+/**
+ * メトリクスデータパケット (BPM/速度/PitchBend等)
+ * @category Data Packets
+ */
 export class TCNetDataPacketMetrics extends TCNetDataPacket {
-    data: {
-        state: TCNetLayerStatus;
-        syncMaster: TCNetLayerSyncMaster;
-        beatMarker: number;
-        trackLength: number;
-        currentPosition: number;
-        speed: number;
-        beatNumber: number;
-        bpm: number;
-        pitchBend: number;
-        trackID: number;
-    } | null = null;
+    data: MetricsData | null = null;
 
     /** バッファからパケットデータを読み取る */
     read(): void {
