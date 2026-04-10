@@ -40,31 +40,33 @@ main().catch(console.error);
 
 ## 前提条件
 
-以下のいずれかが必要:
+以下のいずれかが必要。
 
 - [PRO DJ LINK Bridge](https://www.pioneerdj.com/en/product/software/pro-dj-link-bridge/software/) (Windows / Mac)
 - [ShowKontrol / Beatkontrol](https://www.tc-supply.com/home) (Mac)
 
 ## 機能
 
-- [x] TCNetネットワーク接続
-- [x] ステータスイベント受信
+- [x] TCNetネットワーク接続・アダプタ自動検出
+- [x] ステータス / タイムスタンプ受信
 - [x] メタデータリクエスト (アーティスト名、曲名)
-- [x] メトリクスリクエスト
-- [x] タイムスタンプ受信
+- [x] メトリクスリクエスト (BPM、Speed、Position)
+- [x] CUEデータリクエスト
+- [x] Beat Grid / Wave Form (Small / Big) リクエスト
+- [x] Mixerデータリクエスト
+- [x] アートワーク取得 (JPEG)
+- [x] TCNASDP認証 (セッション自動維持)
+- [x] マルチパケット自動組み立て
 - [ ] Time Sync (NTP/PTP相当)
-- [ ] Beat Grid / Wave Formリクエスト
 - [ ] Control機能 (レイヤー制御)
 
 ## ドキュメント
 
-詳細は[Wiki](https://github.com/9c5s/node-tcnet/wiki)を参照:
-
 - [Getting Started](https://github.com/9c5s/node-tcnet/wiki/Getting-Started) -- 導入ガイド
-- [API Reference](https://github.com/9c5s/node-tcnet/wiki/API-Reference) -- APIリファレンス
+- [API Reference](https://9c5s.github.io/node-tcnet/) -- APIリファレンス
 - [PRO DJ LINK Bridge](https://github.com/9c5s/node-tcnet/wiki/PRO-DJ-LINK-Bridge) -- Bridge固有の制限
 - [TCNet Protocol](https://github.com/9c5s/node-tcnet/wiki/TCNet-Protocol) -- プロトコル仕様
-- [Contributing](https://github.com/9c5s/node-tcnet/wiki/Contributing) -- 開発への参加
+- [Implementation Status](https://github.com/9c5s/node-tcnet/wiki/Implementation-Status) -- 実装状況
 
 ## 関連プロジェクト
 

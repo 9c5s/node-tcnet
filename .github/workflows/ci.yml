@@ -51,7 +51,7 @@ jobs:
         run: npm run format:check
 
       - name: Markdownlint
-        run: npm run mdlint
+        run: npm run lint:md
 
       - name: Textlint
-        run: npm run textlint
+        run: npm run lint:text
