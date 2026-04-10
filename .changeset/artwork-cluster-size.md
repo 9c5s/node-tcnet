@@ -1,5 +1,5 @@
 ---
-"@9c5s/node-tcnet": minor
+"@9c5s/node-tcnet": patch
 ---
 
 fix: アートワーク取得の信頼性改善とクラスタサイズ0対応
