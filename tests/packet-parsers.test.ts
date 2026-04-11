@@ -544,7 +544,7 @@ describe("TCNetDataPacketMetrics", () => {
         buffer.writeUInt32LE(100000, 40); // speed
         buffer.writeUInt32LE(4, 57); // beatNumber
         buffer.writeUInt32LE(14000, 112); // bpm (= 140.00 BPM * 100)
-        buffer.writeUInt16LE(40000, 116); // pitchBend (32768=100%)
+        buffer.writeInt16LE(600, 116); // pitchBend (+6.00%)
         buffer.writeUInt32LE(777, 118); // trackID
 
         const packet = new TCNetDataPacketMetrics();
@@ -564,7 +564,7 @@ describe("TCNetDataPacketMetrics", () => {
         expect(packet.data!.speed).toBe(100000);
         expect(packet.data!.beatNumber).toBe(4);
         expect(packet.data!.bpm).toBe(14000);
-        expect(packet.data!.pitchBend).toBe(40000);
+        expect(packet.data!.pitchBend).toBe(600);
         expect(packet.data!.trackID).toBe(777);
     });
 
@@ -580,9 +580,11 @@ describe("TCNetDataPacketMetrics", () => {
     });
 
     it.each([
-        { value: 0, label: "最小値" },
-        { value: 32768, label: "100%基準" },
-        { value: 65535, label: "最大値" },
+        { value: 0, label: "ピッチ変更なし" },
+        { value: 600, label: "+6.00%" },
+        { value: -600, label: "-6.00%" },
+        { value: 32767, label: "最大値" },
+        { value: -32768, label: "最小値" },
     ])("pitchBend=$value ($label) を正しくパースする", ({ value }) => {
         const buffer = Buffer.alloc(122);
         buffer.writeUInt8(3, 2);
@@ -590,7 +592,7 @@ describe("TCNetDataPacketMetrics", () => {
         buffer.writeUInt8(200, 7);
         buffer.writeUInt8(2, 24);
         buffer.writeUInt8(1, 25);
-        buffer.writeUInt16LE(value, 116);
+        buffer.writeInt16LE(value, 116);
         const packet = new TCNetDataPacketMetrics();
         packet.buffer = buffer;
         packet.header = createHeader(buffer);
