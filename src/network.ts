@@ -792,7 +792,7 @@ export class TCNetDataPacketMixer extends TCNetDataPacket {
 
     /** バッファからパケットデータを読み取る */
     read(): void {
-        // T6: 最大オフセット (channels[5] の crossfaderAssign = 245 + 13 = 258) を確認する
+        // T6: 最大オフセット (channels[5] の crossFaderAssign = 245 + 13 = 258) を確認する
         if (this.buffer.length < 259) {
             return;
         }
@@ -814,7 +814,7 @@ export class TCNetDataPacketMixer extends TCNetDataPacket {
             send: this.buffer.readUInt8(offset + 10),
             cueA: this.buffer.readUInt8(offset + 11),
             cueB: this.buffer.readUInt8(offset + 12),
-            crossfaderAssign: this.buffer.readUInt8(offset + 13),
+            crossFaderAssign: this.buffer.readUInt8(offset + 13),
         });
 
         this.data = {
