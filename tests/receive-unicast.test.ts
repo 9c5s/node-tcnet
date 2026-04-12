@@ -42,6 +42,25 @@ describe("receiveUnicast マルチパケット対応", () => {
     });
 });
 
+describe("receiveUnicast 未定義dataType", () => {
+    it("未定義dataTypeのDataパケットを受信してもクラッシュしない", () => {
+        const client = new TestTCNetClient();
+        client.simulateConnected();
+        const handler = vi.fn();
+        client.on("data", handler);
+
+        // dataType=255 はTCNetDataPacketsに定義されていない
+        const buffer = createDataBuffer(255, 1, 436);
+        expect(() => client.simulateUnicast(buffer)).not.toThrow();
+        expect(handler).not.toHaveBeenCalled();
+    });
+
+    it("TCNetDataPacketsに未定義キーでアクセスするとundefinedが返る", () => {
+        const result = nw.TCNetDataPackets[255 as nw.TCNetDataPacketType];
+        expect(result).toBeUndefined();
+    });
+});
+
 describe("TCNetClient.requestData() layer バリデーション", () => {
     // バリデーション失敗時は sendServer に到達しないため、接続状態不要でテスト可能
 

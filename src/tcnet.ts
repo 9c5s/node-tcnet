@@ -717,7 +717,7 @@ export class TCNetClient extends EventEmitter {
 
         if (packet instanceof nw.TCNetDataPacket) {
             const dataPacketClass = nw.TCNetDataPackets[packet.dataType];
-            if (dataPacketClass !== null) {
+            if (dataPacketClass != null) {
                 const dataPacket: nw.TCNetDataPacket = new dataPacketClass();
                 dataPacket.buffer = msg;
                 dataPacket.header = mgmtHeader;
