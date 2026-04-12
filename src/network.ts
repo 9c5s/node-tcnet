@@ -292,6 +292,9 @@ export class TCNetStatusPacket extends TCNetPacket {
         name: string;
     }> = new Array(8);
 
+    /** APP SPECIFICセクション (byte 100-171, 72バイト) */
+    appSpecific: Buffer | null = null;
+
     /** バッファからパケットデータを読み取る */
     read(): void {
         this.data = {
@@ -300,6 +303,11 @@ export class TCNetStatusPacket extends TCNetPacket {
             smpteMode: this.buffer.readUInt8(83),
             autoMasterMode: this.buffer.readUInt8(84),
         };
+
+        // parsePacketがlength()=300で事前検証するため常にtrueだが防御的に残す
+        if (this.buffer.length >= 172) {
+            this.appSpecific = Buffer.from(this.buffer.slice(100, 172));
+        }
 
         for (let n = 0; n < 8; n++) {
             this.layers[n] = {
@@ -387,7 +395,7 @@ export type TCNetTimecodeState = (typeof TCNetTimecodeState)[keyof typeof TCNetT
  * @category Packets
  */
 export class TCNetTimecode {
-    mode!: number;
+    smpteMode!: number;
     state!: TCNetTimecodeState;
     hours!: number;
     minutes!: number;
@@ -400,7 +408,7 @@ export class TCNetTimecode {
      * @param offset - 読み取り開始位置
      */
     read(buffer: Buffer, offset: number): void {
-        this.mode = buffer.readUInt8(offset + 0);
+        this.smpteMode = buffer.readUInt8(offset + 0);
         this.state = buffer.readUInt8(offset + 1) as TCNetTimecodeState;
         this.hours = buffer.readUInt8(offset + 2);
         this.minutes = buffer.readUInt8(offset + 3);
@@ -419,6 +427,8 @@ export type TCNetTimePacketLayer = {
     beatMarker: number;
     state: TCNetLayerStatus;
     onAir: number;
+    /** レイヤー別タイムコード (byte 106-153, バッファが十分な場合のみ) */
+    timecode?: TCNetTimecode;
 };
 
 /**
@@ -431,14 +441,23 @@ export class TCNetTimePacket extends TCNetPacket {
 
     /** バッファからパケットデータを読み取る */
     read(): void {
+        // Timecodeセクション (byte 106-153) は8レイヤー x 6バイト = 48バイト
+        // 154バイトパケットには含まれるが、将来的に短いバッファが来る可能性に備えガードする
+        const hasTimecode = this.buffer.length >= 154;
         for (let n = 0; n < 8; n++) {
-            this._layers[n] = {
+            const layer: TCNetTimePacketLayer = {
                 currentTimeMillis: this.buffer.readUInt32LE(24 + n * 4),
                 totalTimeMillis: this.buffer.readUInt32LE(56 + n * 4),
                 beatMarker: this.buffer.readUInt8(88 + n),
                 state: this.buffer.readUInt8(96 + n) as TCNetLayerStatus,
                 onAir: this.buffer.length > 154 ? this.buffer.readUInt8(154 + n) : 255,
             };
+            if (hasTimecode) {
+                const tc = new TCNetTimecode();
+                tc.read(this.buffer, 106 + n * 6);
+                layer.timecode = tc;
+            }
+            this._layers[n] = layer;
         }
         this._generalSMPTEMode = this.buffer.readUInt8(105);
     }
@@ -683,6 +702,36 @@ export class TCNetDataPacketCUE extends TCNetDataPacket {
 }
 
 /**
+ * マルチパケットヘッダー情報 (byte 26-41)
+ * @category Types
+ */
+export type MultiPacketHeader = {
+    /** データ全体のサイズ (byte 26-29, UInt32LE) */
+    totalDataSize: number;
+    /** パケット総数 (byte 30-33, UInt32LE) */
+    totalPackets: number;
+    /** パケット番号 (byte 34-37, UInt32LE) */
+    packetNo: number;
+    /** データクラスタサイズ (byte 38-41, UInt32LE) */
+    dataClusterSize: number;
+};
+
+/**
+ * マルチパケットヘッダーをバッファから読み取るヘルパー
+ * @param buffer - 読み取り元バッファ
+ * @returns マルチパケットヘッダー情報
+ */
+export function readMultiPacketHeader(buffer: Buffer): MultiPacketHeader | null {
+    if (buffer.length < 42) return null;
+    return {
+        totalDataSize: buffer.readUInt32LE(26),
+        totalPackets: buffer.readUInt32LE(30),
+        packetNo: buffer.readUInt32LE(34),
+        dataClusterSize: buffer.readUInt32LE(38),
+    };
+}
+
+/**
  * 波形バーを共通パースするファイル内ヘルパー関数。
  * dataStart から source の末尾 (または dataStart + maxBytes の手前) まで
  * 2バイト単位で WaveformBar を生成して返す。
@@ -712,9 +761,12 @@ function parseWaveformBars(source: Buffer, dataStart: number, maxBytes?: number)
  */
 export class TCNetDataPacketSmallWaveForm extends TCNetDataPacket {
     data: WaveformData | null = null;
+    /** マルチパケットヘッダー */
+    multiPacketHeader: MultiPacketHeader | null = null;
 
     /** バッファからパケットデータを読み取る */
     read(): void {
+        this.multiPacketHeader = readMultiPacketHeader(this.buffer);
         // T5: バッファが 2400 バイトに満たない場合でもクラッシュしない
         this.data = { bars: parseWaveformBars(this.buffer, 42, 2400) };
     }
@@ -741,10 +793,13 @@ export class TCNetDataPacketMixer extends TCNetDataPacket {
 
     /** バッファからパケットデータを読み取る */
     read(): void {
-        // T6: 最大オフセット (channels[5] の crossfaderAssign = 245 + 13 = 258) を確認する
+        // T6: 最大オフセット (channels[5] の crossFaderAssign = 245 + 13 = 258) を確認する
         if (this.buffer.length < 259) {
             return;
         }
+
+        // Mixer IDはLayer IDではないため、基底クラスの-1変換を上書きする
+        this.layer = this.buffer.readUInt8(25);
 
         const parseChannel = (offset: number): MixerChannel => ({
             sourceSelect: this.buffer.readUInt8(offset),
@@ -760,7 +815,7 @@ export class TCNetDataPacketMixer extends TCNetDataPacket {
             send: this.buffer.readUInt8(offset + 10),
             cueA: this.buffer.readUInt8(offset + 11),
             cueB: this.buffer.readUInt8(offset + 12),
-            crossfaderAssign: this.buffer.readUInt8(offset + 13),
+            crossFaderAssign: this.buffer.readUInt8(offset + 13),
         });
 
         this.data = {
@@ -770,6 +825,12 @@ export class TCNetDataPacketMixer extends TCNetDataPacket {
             masterAudioLevel: this.buffer.readUInt8(61),
             masterFaderLevel: this.buffer.readUInt8(62),
             masterFilter: this.buffer.readUInt8(69),
+            micEqHi: this.buffer.readUInt8(59),
+            micEqLow: this.buffer.readUInt8(60),
+            linkCueA: this.buffer.readUInt8(67),
+            linkCueB: this.buffer.readUInt8(68),
+            masterCueA: this.buffer.readUInt8(71),
+            masterCueB: this.buffer.readUInt8(72),
             masterIsolatorOn: this.buffer.readUInt8(74) === 1,
             masterIsolatorHi: this.buffer.readUInt8(75),
             masterIsolatorMid: this.buffer.readUInt8(76),
@@ -777,16 +838,36 @@ export class TCNetDataPacketMixer extends TCNetDataPacket {
             filterHpf: this.buffer.readUInt8(79),
             filterLpf: this.buffer.readUInt8(80),
             filterResonance: this.buffer.readUInt8(81),
-            crossFader: this.buffer.readUInt8(99),
-            crossFaderCurve: this.buffer.readUInt8(98),
+            sendFxEffect: this.buffer.readUInt8(84),
+            sendFxExt1: this.buffer.readUInt8(85),
+            sendFxExt2: this.buffer.readUInt8(86),
+            sendFxMasterMix: this.buffer.readUInt8(87),
+            sendFxSizeFeedback: this.buffer.readUInt8(88),
+            sendFxTime: this.buffer.readUInt8(89),
+            sendFxHpf: this.buffer.readUInt8(90),
+            sendFxLevel: this.buffer.readUInt8(91),
+            sendReturn3Source: this.buffer.readUInt8(92),
+            sendReturn3Type: this.buffer.readUInt8(93),
+            sendReturn3On: this.buffer.readUInt8(94),
+            sendReturn3Level: this.buffer.readUInt8(95),
             channelFaderCurve: this.buffer.readUInt8(97),
+            crossFaderCurve: this.buffer.readUInt8(98),
+            crossFader: this.buffer.readUInt8(99),
             beatFxOn: this.buffer.readUInt8(100) === 1,
-            beatFxSelect: this.buffer.readUInt8(103),
             beatFxLevelDepth: this.buffer.readUInt8(101),
             beatFxChannelSelect: this.buffer.readUInt8(102),
+            beatFxSelect: this.buffer.readUInt8(103),
+            beatFxFreqHi: this.buffer.readUInt8(104),
+            beatFxFreqMid: this.buffer.readUInt8(105),
+            beatFxFreqLow: this.buffer.readUInt8(106),
+            headphonesPreEq: this.buffer.readUInt8(107),
             headphonesALevel: this.buffer.readUInt8(108),
+            headphonesAMix: this.buffer.readUInt8(109),
             headphonesBLevel: this.buffer.readUInt8(110),
+            headphonesBMix: this.buffer.readUInt8(111),
             boothLevel: this.buffer.readUInt8(112),
+            boothEqHi: this.buffer.readUInt8(113),
+            boothEqLow: this.buffer.readUInt8(114),
             channels: [125, 149, 173, 197, 221, 245].map(parseChannel),
         };
     }
@@ -810,9 +891,12 @@ export class TCNetDataPacketMixer extends TCNetDataPacket {
  */
 export class TCNetDataPacketBeatGrid extends TCNetDataPacket {
     data: BeatGridData | null = null;
+    /** マルチパケットヘッダー */
+    multiPacketHeader: MultiPacketHeader | null = null;
 
     /** バッファからパケットデータを読み取る */
     read(): void {
+        this.multiPacketHeader = readMultiPacketHeader(this.buffer);
         this.readFromOffset(42);
     }
 
@@ -862,9 +946,12 @@ export class TCNetDataPacketBeatGrid extends TCNetDataPacket {
  */
 export class TCNetDataPacketBigWaveForm extends TCNetDataPacket {
     data: WaveformData | null = null;
+    /** マルチパケットヘッダー */
+    multiPacketHeader: MultiPacketHeader | null = null;
 
     /** バッファからパケットデータを読み取る */
     read(): void {
+        this.multiPacketHeader = readMultiPacketHeader(this.buffer);
         // T7: parseWaveformBars ヘルパーを使用して重複を排除する
         this.data = { bars: parseWaveformBars(this.buffer, 42) };
     }
@@ -914,6 +1001,8 @@ export class TCNetFilePacket extends TCNetDataPacket {
  */
 export class TCNetDataPacketArtwork extends TCNetDataPacket {
     data: ArtworkData | null = null;
+    /** マルチパケットヘッダー */
+    multiPacketHeader: MultiPacketHeader | null = null;
 
     /** バッファからパケットデータを読み取る */
     read(): void {
@@ -921,7 +1010,8 @@ export class TCNetDataPacketArtwork extends TCNetDataPacket {
         if (this.buffer.length < dataStart) {
             return;
         }
-        const clusterSize = this.buffer.readUInt32LE(38);
+        this.multiPacketHeader = readMultiPacketHeader(this.buffer);
+        const clusterSize = this.multiPacketHeader?.dataClusterSize ?? 0;
         const end = getClusterEnd(this.buffer.length, dataStart, clusterSize);
         this.data = { jpeg: Buffer.from(this.buffer.slice(dataStart, end)) };
     }
@@ -958,12 +1048,21 @@ export class TCNetDataPacketArtwork extends TCNetDataPacket {
  * @category Packets
  */
 export class TCNetErrorPacket extends TCNetPacket {
-    /** エラーボディの生データ (offset 24以降) */
-    errorData!: Buffer;
+    /** データタイプ (byte 24) */
+    dataType!: number;
+    /** レイヤーID (byte 25) */
+    layerId!: number;
+    /** エラーコード (byte 26-27, UInt16LE) 1=Unknown, 13=Not Possible, 14=Empty, 255=OK */
+    code!: number;
+    /** メッセージタイプ (byte 28-29, UInt16LE) */
+    messageType!: number;
 
     /** バッファからパケットデータを読み取る */
     read(): void {
-        this.errorData = Buffer.from(this.buffer.slice(24));
+        this.dataType = this.buffer.readUInt8(24);
+        this.layerId = this.buffer.readUInt8(25);
+        this.code = this.buffer.readUInt16LE(26);
+        this.messageType = this.buffer.readUInt16LE(28);
     }
 
     /** パケットデータをバッファに書き込む */
@@ -973,10 +1072,10 @@ export class TCNetErrorPacket extends TCNetPacket {
 
     /**
      * パケットのバイト長を返す
-     * @returns パケット長 (-1: 可変長)
+     * @returns パケット長
      */
     length(): number {
-        return -1;
+        return 30;
     }
 
     /**

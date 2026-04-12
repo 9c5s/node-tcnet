@@ -534,7 +534,7 @@ export class TCNetClient extends EventEmitter {
      */
     private parsePacket(header: nw.TCNetManagementHeader): nw.TCNetPacket | null {
         const packetClass = nw.TCNetPackets[header.messageType];
-        if (packetClass !== null) {
+        if (packetClass != null) {
             const packet = new packetClass();
             // 可変長メッセージはバッファから長さを判定する必要があるため、
             // length()の前にbufferとheaderを設定する
@@ -689,6 +689,9 @@ export class TCNetClient extends EventEmitter {
                 finalPacket.header = mgmtHeader;
                 finalPacket.dataType = dataPacket.dataType;
                 finalPacket.layer = dataPacket.layer;
+                if ("multiPacketHeader" in finalPacket) {
+                    finalPacket.multiPacketHeader = nw.readMultiPacketHeader(msg);
+                }
                 if ("readAssembled" in finalPacket && typeof finalPacket.readAssembled === "function") {
                     finalPacket.readAssembled(assembled);
                 }
@@ -711,13 +714,14 @@ export class TCNetClient extends EventEmitter {
      * @param rinfo - 送信元情報
      */
     private receiveUnicast(msg: Buffer, rinfo: RemoteInfo): void {
+        if (msg.length < 26) return;
         const mgmtHeader = new nw.TCNetManagementHeader(msg);
         mgmtHeader.read();
         const packet = this.parsePacket(mgmtHeader);
 
         if (packet instanceof nw.TCNetDataPacket) {
             const dataPacketClass = nw.TCNetDataPackets[packet.dataType];
-            if (dataPacketClass !== null) {
+            if (dataPacketClass != null) {
                 const dataPacket: nw.TCNetDataPacket = new dataPacketClass();
                 dataPacket.buffer = msg;
                 dataPacket.header = mgmtHeader;
@@ -729,7 +733,7 @@ export class TCNetClient extends EventEmitter {
                 const pendingRequest = this.requests.get(key);
 
                 if (pendingRequest && pendingRequest.assembler) {
-                    // マルチパケット: アセンブラに蓄積
+                    if (msg.length < 42) return;
                     const totalPackets = msg.readUInt32LE(30);
                     const isFilePacket = packet instanceof nw.TCNetFilePacket;
                     if (isFilePacket && (totalPackets === 0 || pendingRequest.fileChunks)) {
@@ -745,6 +749,9 @@ export class TCNetClient extends EventEmitter {
                             finalPacket.header = mgmtHeader;
                             finalPacket.dataType = dataPacket.dataType;
                             finalPacket.layer = dataPacket.layer;
+                            if ("multiPacketHeader" in finalPacket) {
+                                finalPacket.multiPacketHeader = nw.readMultiPacketHeader(msg);
+                            }
                             if ("readAssembled" in finalPacket && typeof finalPacket.readAssembled === "function") {
                                 finalPacket.readAssembled(assembled);
                             }
@@ -1421,13 +1428,9 @@ export class TCNetClient extends EventEmitter {
      * @param packet - 受信した Error パケット
      */
     private handleAuthErrorPacket(packet: nw.TCNetErrorPacket): void {
-        if (this._authState !== "pending" || packet.errorData.length < 3) return;
+        if (this._authState !== "pending") return;
 
-        const b0 = packet.errorData[0];
-        const b1 = packet.errorData[1];
-        const b2 = packet.errorData[2];
-
-        if (b0 === 0xff && b1 === 0xff && b2 === 0xff) {
+        if (packet.dataType === 0xff && packet.layerId === 0xff && packet.code === 255) {
             if (this.authTimeoutId) {
                 clearTimeout(this.authTimeoutId);
                 this.authTimeoutId = null;
@@ -1435,7 +1438,7 @@ export class TCNetClient extends EventEmitter {
             this._authState = "authenticated";
             this.log?.debug("TCNASDP authentication succeeded");
             this.emit("authenticated");
-        } else if (b0 === 0xff && b1 === 0xff && b2 === 0x0d) {
+        } else if (packet.dataType === 0xff && packet.layerId === 0xff && packet.code === 13) {
             if (this.authTimeoutId) {
                 clearTimeout(this.authTimeoutId);
                 this.authTimeoutId = null;

@@ -8,13 +8,13 @@ node-tcnetにおけるTCNet V3.5.1B仕様の実装状況をまとめる。
 |------|------|--------|------|
 | 2 | OptIn | 68 | 送受信対応 |
 | 3 | OptOut | 28 | 送受信対応 |
-| 5 | Status | 300 | 受信のみ |
+| 5 | Status | 300 | 受信のみ。APP SPECIFICセクション(byte 100-171)対応 |
 | 20 | Request | 26 | 送信のみ |
 | 200 | Data | 可変 | 受信のみ(DataTypeによる) |
-| 13 | Error/Notification | 30 | 受信のみ。TCNASDP認証応答の判定に使用 |
+| 13 | Error/Notification | 30 | 受信のみ。dataType/layerId/code/messageType構造化済み |
 | 30 | Application Specific Data | 可変 | 送受信対応。TCNASDP認証のハンドシェイクに使用 |
 | 204 | File | 可変 | 受信のみ。Artwork(JPEG)のファイル転送。マルチパケット対応 |
-| 254 | Time | 154/162 | 受信のみ。OnAirセクション(V3.3.3+)の有無を自動判定する |
+| 254 | Time | 154/162 | 受信のみ。OnAirセクション(V3.3.3+)の有無を自動判定。Timecodeセクション対応 |
 
 ## 未実装メッセージ
 
@@ -31,11 +31,11 @@ node-tcnetにおけるTCNet V3.5.1B仕様の実装状況をまとめる。
 |----------|------|--------|------|
 | 2 | Metrics Data | 122 | BPM, Speed, Position等 |
 | 4 | Meta Data | 548 | Artist, Title, TrackID。V3.5.0+のUTF-16LEに対応 |
-| 8 | Beat Grid Data | 2442 | マルチパケット。MultiPacketAssemblerで自動組み立て |
+| 8 | Beat Grid Data | 2442 | マルチパケット。MultiPacketAssemblerで自動組み立て。ヘッダー公開 |
 | 12 | CUE Data | 436 | 最大18キュー、Loop In/Out Time |
-| 16 | Small Wave Form | 2442 | 1200バーの波形データ |
-| 32 | Big Wave Form | 可変 | マルチパケット。MultiPacketAssemblerで自動組み立て |
-| 128 | Artwork Data | 可変 | マルチパケット。JPEG形式。MultiPacketAssemblerで自動組み立て |
+| 16 | Small Wave Form | 2442 | 1200バーの波形データ。ヘッダー公開 |
+| 32 | Big Wave Form | 可変 | マルチパケット。MultiPacketAssemblerで自動組み立て。ヘッダー公開 |
+| 128 | Artwork Data | 可変 | マルチパケット。JPEG形式。MultiPacketAssemblerで自動組み立て。ヘッダー公開 |
 | 150 | Mixer Data | 270 | 6チャンネル対応 |
 
 ## 未実装DataPacketタイプ
@@ -47,7 +47,7 @@ node-tcnetにおけるTCNet V3.5.1B仕様の実装状況をまとめる。
 | 項目 | 仕様 | 実装 | 影響 |
 |------|------|------|------|
 | MetaData V3.4以前 | UTF-8(256文字) | 未対応(パケット破棄) | V3.5.0未満のノードからMetaDataを受信できない |
-| Timeパケットサイズ | 162バイト(V3.3.3+) | 154または162バイト | buffer.lengthで自動判定しており、OnAir未対応ノードも正常に処理できる |
+| Timeパケットサイズ | 162バイト(V3.3.3+) | 154または162バイト | buffer.lengthで自動判定しており、OnAir未対応ノードも正常に処理できる。Timecodeセクションは154バイト以上で読み取り |
 
 ## TCNASDP認証
 

@@ -42,6 +42,57 @@ describe("receiveUnicast マルチパケット対応", () => {
     });
 });
 
+describe("receiveUnicast エラーハンドリング", () => {
+    it("26バイト未満のバッファでクラッシュしない", () => {
+        const client = new TestTCNetClient();
+        client.simulateConnected();
+        const handler = vi.fn();
+        client.on("data", handler);
+
+        expect(() => client.simulateUnicast(Buffer.alloc(10))).not.toThrow();
+        expect(handler).not.toHaveBeenCalled();
+    });
+
+    it("42バイト未満のDataパケットでマルチパケットヘッダー読み取り時にクラッシュしない", () => {
+        const client = new TestTCNetClient();
+        client.simulateConnected();
+
+        const mockSocket = {
+            send: vi.fn((_buf: Buffer, _port: number, _addr: string, cb: () => void) => cb()),
+        };
+        client.configureMockBroadcast(mockSocket);
+
+        const requestPromise = client.requestData(nw.TCNetDataPacketType.BigWaveFormData, 0);
+
+        const shortBuffer = Buffer.alloc(30);
+        writeValidHeader(shortBuffer, 200);
+        shortBuffer.writeUInt8(nw.TCNetDataPacketType.BigWaveFormData, 24);
+        shortBuffer.writeUInt8(1, 25);
+
+        expect(() => client.simulateUnicast(shortBuffer)).not.toThrow();
+        requestPromise.catch(() => {});
+    });
+});
+
+describe("receiveUnicast 未定義dataType", () => {
+    it("未定義dataTypeのDataパケットを受信してもクラッシュしない", () => {
+        const client = new TestTCNetClient();
+        client.simulateConnected();
+        const handler = vi.fn();
+        client.on("data", handler);
+
+        // dataType=255 はTCNetDataPacketsに定義されていない
+        const buffer = createDataBuffer(255, 1, 436);
+        expect(() => client.simulateUnicast(buffer)).not.toThrow();
+        expect(handler).not.toHaveBeenCalled();
+    });
+
+    it("TCNetDataPacketsに未定義キーでアクセスするとundefinedが返る", () => {
+        const result = nw.TCNetDataPackets[255 as nw.TCNetDataPacketType];
+        expect(result).toBeUndefined();
+    });
+});
+
 describe("TCNetClient.requestData() layer バリデーション", () => {
     // バリデーション失敗時は sendServer に到達しないため、接続状態不要でテスト可能
 
