@@ -48,12 +48,16 @@ byte 44-45に`0x001e` (=30) が入ることもある。用途不明 (値30はSMP
 
 ### Mixer
 
-以下のフィールドが常に0で返される。
+`masterAudioLevel`は常に0で返される (TCNetマスターの種類に依らない)。
 
-- `masterAudioLevel`
-- 全チャンネルの `audioLevel`
+その他のフィールドの取得可否はTCNetマスターの種類に依存する。
 
-フェーダー位置 (`faderLevel`, `crossFader`), TRIMノブ (`trimLevel`), EQ等の物理コントロール値はリアルタイムで取得可能。Audio Levelは音量レベルメーター相当の値だが、Bridge経由では配信されない。
+| フィールド群 | Bridgeマスター | ShowKontrolマスター |
+|-------------|--------------|-------------------|
+| masterAudioLevel | 0 | 0 |
+| チャンネル audioLevel | 0 | リアルタイム取得可能 |
+| EQ, Filter, Trim等のノブ系 | リアルタイム取得可能 | 0 |
+| フェーダー位置 (faderLevel, crossFader) | リアルタイム取得可能 | リアルタイム取得可能 |
 
 ### CUE
 
