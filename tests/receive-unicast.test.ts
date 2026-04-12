@@ -43,7 +43,7 @@ describe("receiveUnicast マルチパケット対応", () => {
 });
 
 describe("receiveUnicast エラーハンドリング", () => {
-    it("24バイト未満のバッファでクラッシュしない", () => {
+    it("26バイト未満のバッファでクラッシュしない", () => {
         const client = new TestTCNetClient();
         client.simulateConnected();
         const handler = vi.fn();

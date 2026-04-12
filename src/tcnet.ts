@@ -714,7 +714,7 @@ export class TCNetClient extends EventEmitter {
      * @param rinfo - 送信元情報
      */
     private receiveUnicast(msg: Buffer, rinfo: RemoteInfo): void {
-        if (msg.length < 24) return;
+        if (msg.length < 26) return;
         const mgmtHeader = new nw.TCNetManagementHeader(msg);
         mgmtHeader.read();
         const packet = this.parsePacket(mgmtHeader);
