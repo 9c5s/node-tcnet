@@ -8,7 +8,7 @@ node-tcnetにおけるTCNet V3.5.1B仕様の実装状況をまとめる。
 |------|------|--------|------|
 | 2 | OptIn | 68 | 送受信対応 |
 | 3 | OptOut | 28 | 送受信対応 |
-| 5 | Status | 300 | 受信のみ |
+| 5 | Status | 300 | 受信のみ。APP SPECIFICセクション(byte 100-171)対応 |
 | 20 | Request | 26 | 送信のみ |
 | 200 | Data | 可変 | 受信のみ(DataTypeによる) |
 | 13 | Error/Notification | 30 | 受信のみ。dataType/layerId/code/messageType構造化済み |

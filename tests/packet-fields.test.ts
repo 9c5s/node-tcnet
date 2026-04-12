@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
     TCNetMessageType,
     TCNetErrorPacket,
+    TCNetStatusPacket,
     TCNetTimePacket,
     TCNetTimecodeState,
     TCNetDataPacketSmallWaveForm,
@@ -319,5 +320,59 @@ describe("TCNetTimePacket Timecodeセクション", () => {
             expect(packet.layers[n].timecode!.seconds).toBe(n * 7);
             expect(packet.layers[n].timecode!.frames).toBe(n * 3);
         }
+    });
+});
+
+describe("TCNetStatusPacket APP SPECIFIC", () => {
+    it("appSpecificフィールドに byte 100-171 が読み取れる", () => {
+        const buffer = Buffer.alloc(300);
+        writeValidHeader(buffer, TCNetMessageType.Status);
+        buffer.writeUInt16LE(1, 24); // nodeCount
+        buffer.writeUInt16LE(60000, 26); // nodeListenerPort
+
+        // APP SPECIFICセクションにテストデータを書き込む
+        for (let i = 0; i < 72; i++) {
+            buffer.writeUInt8(i + 1, 100 + i);
+        }
+
+        const packet = new TCNetStatusPacket();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+
+        expect(packet.appSpecific).not.toBeNull();
+        expect(packet.appSpecific!.length).toBe(72);
+        expect(packet.appSpecific![0]).toBe(1);
+        expect(packet.appSpecific![71]).toBe(72);
+    });
+
+    it("appSpecificは元バッファのコピーである", () => {
+        const buffer = Buffer.alloc(300);
+        writeValidHeader(buffer, TCNetMessageType.Status);
+
+        buffer.writeUInt8(0xab, 100);
+
+        const packet = new TCNetStatusPacket();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+
+        // 元バッファを変更してもappSpecificに影響しない
+        buffer.writeUInt8(0x00, 100);
+        expect(packet.appSpecific![0]).toBe(0xab);
+    });
+
+    it("全バイトが0x00の場合も正常に読み取れる", () => {
+        const buffer = Buffer.alloc(300);
+        writeValidHeader(buffer, TCNetMessageType.Status);
+
+        const packet = new TCNetStatusPacket();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+
+        expect(packet.appSpecific).not.toBeNull();
+        expect(packet.appSpecific!.length).toBe(72);
+        expect(packet.appSpecific!.every((b) => b === 0)).toBe(true);
     });
 });

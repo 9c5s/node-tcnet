@@ -292,6 +292,9 @@ export class TCNetStatusPacket extends TCNetPacket {
         name: string;
     }> = new Array(8);
 
+    /** APP SPECIFICセクション (byte 100-171, 72バイト) */
+    appSpecific: Buffer | null = null;
+
     /** バッファからパケットデータを読み取る */
     read(): void {
         this.data = {
@@ -300,6 +303,10 @@ export class TCNetStatusPacket extends TCNetPacket {
             smpteMode: this.buffer.readUInt8(83),
             autoMasterMode: this.buffer.readUInt8(84),
         };
+
+        if (this.buffer.length >= 172) {
+            this.appSpecific = Buffer.from(this.buffer.slice(100, 172));
+        }
 
         for (let n = 0; n < 8; n++) {
             this.layers[n] = {
