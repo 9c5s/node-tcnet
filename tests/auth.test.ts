@@ -200,8 +200,8 @@ describe("TCNetErrorPacket", () => {
         writeValidHeader(buffer, TCNetMessageType.Error);
         buffer.writeUInt8(0xff, 24); // dataType
         buffer.writeUInt8(0xff, 25); // layerId
-        buffer.writeUInt16LE(0xffff, 26); // code
-        buffer.writeUInt16LE(0x00, 28); // messageType
+        buffer.writeUInt16LE(0x1234, 26); // code
+        buffer.writeUInt16LE(0x5678, 28); // messageType
 
         const packet = new TCNetErrorPacket();
         packet.buffer = buffer;
@@ -213,8 +213,8 @@ describe("TCNetErrorPacket", () => {
         // Assert
         expect(packet.dataType).toBe(0xff);
         expect(packet.layerId).toBe(0xff);
-        expect(packet.code).toBe(0xffff);
-        expect(packet.messageType).toBe(0x00);
+        expect(packet.code).toBe(0x1234);
+        expect(packet.messageType).toBe(0x5678);
     });
 
     it("認証失敗のErrorパケット (code=0x000D) をパースする", () => {

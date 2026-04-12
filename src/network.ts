@@ -721,7 +721,7 @@ export type MultiPacketHeader = {
  * @param buffer - 読み取り元バッファ
  * @returns マルチパケットヘッダー情報
  */
-function readMultiPacketHeader(buffer: Buffer): MultiPacketHeader | null {
+export function readMultiPacketHeader(buffer: Buffer): MultiPacketHeader | null {
     if (buffer.length < 42) return null;
     return {
         totalDataSize: buffer.readUInt32LE(26),
@@ -1011,7 +1011,7 @@ export class TCNetDataPacketArtwork extends TCNetDataPacket {
             return;
         }
         this.multiPacketHeader = readMultiPacketHeader(this.buffer);
-        const clusterSize = this.buffer.readUInt32LE(38);
+        const clusterSize = this.multiPacketHeader?.dataClusterSize ?? 0;
         const end = getClusterEnd(this.buffer.length, dataStart, clusterSize);
         this.data = { jpeg: Buffer.from(this.buffer.slice(dataStart, end)) };
     }

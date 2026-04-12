@@ -746,6 +746,9 @@ export class TCNetClient extends EventEmitter {
                             finalPacket.header = mgmtHeader;
                             finalPacket.dataType = dataPacket.dataType;
                             finalPacket.layer = dataPacket.layer;
+                            if ("multiPacketHeader" in finalPacket) {
+                                finalPacket.multiPacketHeader = nw.readMultiPacketHeader(msg);
+                            }
                             if ("readAssembled" in finalPacket && typeof finalPacket.readAssembled === "function") {
                                 finalPacket.readAssembled(assembled);
                             }
