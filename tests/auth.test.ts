@@ -194,7 +194,7 @@ describe("TCNetApplicationDataPacket", () => {
 });
 
 describe("TCNetErrorPacket", () => {
-    it("認証成功のErrorパケットを構造化フィールドでパースする", () => {
+    it("ErrorパケットのフィールドをUInt16LEで正しくパースする", () => {
         // Arrange
         const buffer = Buffer.alloc(30);
         writeValidHeader(buffer, TCNetMessageType.Error);

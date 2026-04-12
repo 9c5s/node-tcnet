@@ -534,7 +534,7 @@ export class TCNetClient extends EventEmitter {
      */
     private parsePacket(header: nw.TCNetManagementHeader): nw.TCNetPacket | null {
         const packetClass = nw.TCNetPackets[header.messageType];
-        if (packetClass !== null) {
+        if (packetClass != null) {
             const packet = new packetClass();
             // 可変長メッセージはバッファから長さを判定する必要があるため、
             // length()の前にbufferとheaderを設定する
