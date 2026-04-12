@@ -304,6 +304,7 @@ export class TCNetStatusPacket extends TCNetPacket {
             autoMasterMode: this.buffer.readUInt8(84),
         };
 
+        // parsePacketがlength()=300で事前検証するため常にtrueだが防御的に残す
         if (this.buffer.length >= 172) {
             this.appSpecific = Buffer.from(this.buffer.slice(100, 172));
         }
@@ -394,7 +395,7 @@ export type TCNetTimecodeState = (typeof TCNetTimecodeState)[keyof typeof TCNetT
  * @category Packets
  */
 export class TCNetTimecode {
-    mode!: number;
+    smpteMode!: number;
     state!: TCNetTimecodeState;
     hours!: number;
     minutes!: number;
@@ -407,7 +408,7 @@ export class TCNetTimecode {
      * @param offset - 読み取り開始位置
      */
     read(buffer: Buffer, offset: number): void {
-        this.mode = buffer.readUInt8(offset + 0);
+        this.smpteMode = buffer.readUInt8(offset + 0);
         this.state = buffer.readUInt8(offset + 1) as TCNetTimecodeState;
         this.hours = buffer.readUInt8(offset + 2);
         this.minutes = buffer.readUInt8(offset + 3);
@@ -415,25 +416,6 @@ export class TCNetTimecode {
         this.frames = buffer.readUInt8(offset + 5);
     }
 }
-
-/**
- * Timeパケットのレイヤー別タイムコードデータ
- * @category Types
- */
-export type TCNetTimePacketTimecode = {
-    /** レイヤー固有のSMPTEモード */
-    smpteMode: number;
-    /** タイムコード状態 */
-    state: TCNetTimecodeState;
-    /** 時 */
-    hours: number;
-    /** 分 */
-    minutes: number;
-    /** 秒 */
-    seconds: number;
-    /** フレーム */
-    frames: number;
-};
 
 /**
  * Timeパケットの1レイヤー分のデータ
@@ -446,7 +428,7 @@ export type TCNetTimePacketLayer = {
     state: TCNetLayerStatus;
     onAir: number;
     /** レイヤー別タイムコード (byte 106-153, バッファが十分な場合のみ) */
-    timecode?: TCNetTimePacketTimecode;
+    timecode?: TCNetTimecode;
 };
 
 /**
@@ -471,15 +453,9 @@ export class TCNetTimePacket extends TCNetPacket {
                 onAir: this.buffer.length > 154 ? this.buffer.readUInt8(154 + n) : 255,
             };
             if (hasTimecode) {
-                const tcOffset = 106 + n * 6;
-                layer.timecode = {
-                    smpteMode: this.buffer.readUInt8(tcOffset),
-                    state: this.buffer.readUInt8(tcOffset + 1) as TCNetTimecodeState,
-                    hours: this.buffer.readUInt8(tcOffset + 2),
-                    minutes: this.buffer.readUInt8(tcOffset + 3),
-                    seconds: this.buffer.readUInt8(tcOffset + 4),
-                    frames: this.buffer.readUInt8(tcOffset + 5),
-                };
+                const tc = new TCNetTimecode();
+                tc.read(this.buffer, 106 + n * 6);
+                layer.timecode = tc;
             }
             this._layers[n] = layer;
         }

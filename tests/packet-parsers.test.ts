@@ -406,7 +406,7 @@ describe("TCNetTimecode", () => {
         tc.read(buffer, 10);
 
         // Assert
-        expect(tc.mode).toBe(1);
+        expect(tc.smpteMode).toBe(1);
         expect(tc.state).toBe(TCNetTimecodeState.Running);
         expect(tc.hours).toBe(2);
         expect(tc.minutes).toBe(30);
@@ -429,7 +429,7 @@ describe("TCNetTimecode", () => {
         tc.read(buffer, 0);
 
         // Assert
-        expect(tc.mode).toBe(0);
+        expect(tc.smpteMode).toBe(0);
         expect(tc.state).toBe(TCNetTimecodeState.Stopped);
         expect(tc.hours).toBe(0);
         expect(tc.minutes).toBe(0);
