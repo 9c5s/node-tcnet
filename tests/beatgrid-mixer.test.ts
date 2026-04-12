@@ -8,6 +8,33 @@ function createHeader(buffer: Buffer): TCNetManagementHeader {
 }
 
 describe("TCNetDataPacketMixer", () => {
+    it("read()後のthis.layerはmixerId(buffer[25])と一致する", () => {
+        const buffer = Buffer.alloc(270);
+        buffer.writeUInt8(0, 25);
+
+        const packet = new TCNetDataPacketMixer();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.layer = -1; // 基底クラスの-1変換を模擬する
+        packet.read();
+
+        expect(packet.layer).toBe(0);
+    });
+
+    it("mixerId=3のパケットでthis.layerが3になる", () => {
+        const buffer = Buffer.alloc(270);
+        buffer.writeUInt8(3, 25);
+
+        const packet = new TCNetDataPacketMixer();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.layer = 2; // 基底クラスが3-1=2を設定する想定
+        packet.read();
+
+        expect(packet.layer).toBe(3);
+        expect(packet.data!.mixerId).toBe(3);
+    });
+
     it("Mixerデータをパースする", () => {
         const buffer = Buffer.alloc(270);
         buffer.writeUInt8(3, 2);
@@ -64,20 +91,28 @@ describe("TCNetDataPacketMixer", () => {
     });
 
     it("バッファが 258 バイトの場合 data は null のまま", () => {
-        // Arrange: 最大オフセット 258 に届かない 258 バイトのバッファ
         const buffer = Buffer.alloc(258);
         buffer.writeUInt8(3, 2);
         buffer.write("TCN", 4, "ascii");
         buffer.writeUInt8(200, 7);
 
-        // Act
         const packet = new TCNetDataPacketMixer();
         packet.buffer = buffer;
         packet.header = createHeader(buffer);
         packet.read();
 
-        // Assert
         expect(packet.data).toBeNull();
+    });
+
+    it("バッファが短い場合はthis.layerを上書きしない", () => {
+        const buffer = Buffer.alloc(258);
+        const packet = new TCNetDataPacketMixer();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.layer = -1;
+        packet.read();
+
+        expect(packet.layer).toBe(-1);
     });
 });
 

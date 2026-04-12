@@ -746,6 +746,9 @@ export class TCNetDataPacketMixer extends TCNetDataPacket {
             return;
         }
 
+        // Mixer IDはLayer IDではないため、基底クラスの-1変換を上書きする
+        this.layer = this.buffer.readUInt8(25);
+
         const parseChannel = (offset: number): MixerChannel => ({
             sourceSelect: this.buffer.readUInt8(offset),
             audioLevel: this.buffer.readUInt8(offset + 1),
