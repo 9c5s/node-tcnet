@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import {
     TCNetMessageType,
     TCNetErrorPacket,
+    TCNetTimePacket,
+    TCNetTimecodeState,
     TCNetDataPacketSmallWaveForm,
     TCNetDataPacketBigWaveForm,
     TCNetDataPacketBeatGrid,
@@ -222,5 +224,100 @@ describe("マルチパケットヘッダー公開", () => {
             expect(packet.multiPacketHeader).toBeNull();
             expect(packet.data).toBeNull();
         });
+    });
+});
+
+describe("TCNetTimePacket Timecodeセクション", () => {
+    it("154バイトバッファからTimecodeセクションを読み取る", () => {
+        const buffer = Buffer.alloc(154);
+        writeValidHeader(buffer, TCNetMessageType.Time);
+
+        // レイヤー0のTimecode (offset=106)
+        buffer.writeUInt8(2, 106); // smpteMode
+        buffer.writeUInt8(TCNetTimecodeState.Running, 107); // state
+        buffer.writeUInt8(1, 108); // hours
+        buffer.writeUInt8(30, 109); // minutes
+        buffer.writeUInt8(45, 110); // seconds
+        buffer.writeUInt8(24, 111); // frames
+
+        // レイヤー7のTimecode (offset=148)
+        buffer.writeUInt8(3, 148); // smpteMode
+        buffer.writeUInt8(TCNetTimecodeState.Stopped, 149); // state
+        buffer.writeUInt8(0, 150); // hours
+        buffer.writeUInt8(0, 151); // minutes
+        buffer.writeUInt8(0, 152); // seconds
+        buffer.writeUInt8(0, 153); // frames
+
+        const packet = new TCNetTimePacket();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+
+        expect(packet.layers[0].timecode).toBeDefined();
+        expect(packet.layers[0].timecode!.smpteMode).toBe(2);
+        expect(packet.layers[0].timecode!.state).toBe(TCNetTimecodeState.Running);
+        expect(packet.layers[0].timecode!.hours).toBe(1);
+        expect(packet.layers[0].timecode!.minutes).toBe(30);
+        expect(packet.layers[0].timecode!.seconds).toBe(45);
+        expect(packet.layers[0].timecode!.frames).toBe(24);
+
+        expect(packet.layers[7].timecode).toBeDefined();
+        expect(packet.layers[7].timecode!.smpteMode).toBe(3);
+        expect(packet.layers[7].timecode!.state).toBe(TCNetTimecodeState.Stopped);
+    });
+
+    it("162バイトバッファでもTimecodeセクションを読み取る", () => {
+        const buffer = Buffer.alloc(162);
+        writeValidHeader(buffer, TCNetMessageType.Time);
+
+        // レイヤー2のTimecode (offset=118)
+        buffer.writeUInt8(1, 118); // smpteMode
+        buffer.writeUInt8(TCNetTimecodeState.ForceReSync, 119); // state
+        buffer.writeUInt8(23, 120); // hours
+        buffer.writeUInt8(59, 121); // minutes
+        buffer.writeUInt8(59, 122); // seconds
+        buffer.writeUInt8(29, 123); // frames
+
+        const packet = new TCNetTimePacket();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+
+        expect(packet.layers[2].timecode).toBeDefined();
+        expect(packet.layers[2].timecode!.smpteMode).toBe(1);
+        expect(packet.layers[2].timecode!.state).toBe(TCNetTimecodeState.ForceReSync);
+        expect(packet.layers[2].timecode!.hours).toBe(23);
+        expect(packet.layers[2].timecode!.minutes).toBe(59);
+        expect(packet.layers[2].timecode!.seconds).toBe(59);
+        expect(packet.layers[2].timecode!.frames).toBe(29);
+    });
+
+    it("全8レイヤーのTimecodeが独立して読み取れる", () => {
+        const buffer = Buffer.alloc(154);
+        writeValidHeader(buffer, TCNetMessageType.Time);
+
+        for (let n = 0; n < 8; n++) {
+            const offset = 106 + n * 6;
+            buffer.writeUInt8(n, offset); // smpteMode = レイヤー番号
+            buffer.writeUInt8(1, offset + 1); // state = Running
+            buffer.writeUInt8(n + 1, offset + 2); // hours
+            buffer.writeUInt8(n * 5, offset + 3); // minutes
+            buffer.writeUInt8(n * 7, offset + 4); // seconds
+            buffer.writeUInt8(n * 3, offset + 5); // frames
+        }
+
+        const packet = new TCNetTimePacket();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+
+        for (let n = 0; n < 8; n++) {
+            expect(packet.layers[n].timecode).toBeDefined();
+            expect(packet.layers[n].timecode!.smpteMode).toBe(n);
+            expect(packet.layers[n].timecode!.hours).toBe(n + 1);
+            expect(packet.layers[n].timecode!.minutes).toBe(n * 5);
+            expect(packet.layers[n].timecode!.seconds).toBe(n * 7);
+            expect(packet.layers[n].timecode!.frames).toBe(n * 3);
+        }
     });
 });

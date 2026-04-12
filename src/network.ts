@@ -410,6 +410,25 @@ export class TCNetTimecode {
 }
 
 /**
+ * Timeパケットのレイヤー別タイムコードデータ
+ * @category Types
+ */
+export type TCNetTimePacketTimecode = {
+    /** レイヤー固有のSMPTEモード */
+    smpteMode: number;
+    /** タイムコード状態 */
+    state: TCNetTimecodeState;
+    /** 時 */
+    hours: number;
+    /** 分 */
+    minutes: number;
+    /** 秒 */
+    seconds: number;
+    /** フレーム */
+    frames: number;
+};
+
+/**
  * Timeパケットの1レイヤー分のデータ
  * @category Types
  */
@@ -419,6 +438,8 @@ export type TCNetTimePacketLayer = {
     beatMarker: number;
     state: TCNetLayerStatus;
     onAir: number;
+    /** レイヤー別タイムコード (byte 106-153, バッファが十分な場合のみ) */
+    timecode?: TCNetTimePacketTimecode;
 };
 
 /**
@@ -431,14 +452,29 @@ export class TCNetTimePacket extends TCNetPacket {
 
     /** バッファからパケットデータを読み取る */
     read(): void {
+        // Timecodeセクション (byte 106-153) は8レイヤー x 6バイト = 48バイト
+        // 154バイトパケットには含まれるが、将来的に短いバッファが来る可能性に備えガードする
+        const hasTimecode = this.buffer.length >= 154;
         for (let n = 0; n < 8; n++) {
-            this._layers[n] = {
+            const layer: TCNetTimePacketLayer = {
                 currentTimeMillis: this.buffer.readUInt32LE(24 + n * 4),
                 totalTimeMillis: this.buffer.readUInt32LE(56 + n * 4),
                 beatMarker: this.buffer.readUInt8(88 + n),
                 state: this.buffer.readUInt8(96 + n) as TCNetLayerStatus,
                 onAir: this.buffer.length > 154 ? this.buffer.readUInt8(154 + n) : 255,
             };
+            if (hasTimecode) {
+                const tcOffset = 106 + n * 6;
+                layer.timecode = {
+                    smpteMode: this.buffer.readUInt8(tcOffset),
+                    state: this.buffer.readUInt8(tcOffset + 1) as TCNetTimecodeState,
+                    hours: this.buffer.readUInt8(tcOffset + 2),
+                    minutes: this.buffer.readUInt8(tcOffset + 3),
+                    seconds: this.buffer.readUInt8(tcOffset + 4),
+                    frames: this.buffer.readUInt8(tcOffset + 5),
+                };
+            }
+            this._layers[n] = layer;
         }
         this._generalSMPTEMode = this.buffer.readUInt8(105);
     }

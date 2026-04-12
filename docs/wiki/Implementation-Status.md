@@ -14,7 +14,7 @@ node-tcnetにおけるTCNet V3.5.1B仕様の実装状況をまとめる。
 | 13 | Error/Notification | 30 | 受信のみ。dataType/layerId/code/messageType構造化済み |
 | 30 | Application Specific Data | 可変 | 送受信対応。TCNASDP認証のハンドシェイクに使用 |
 | 204 | File | 可変 | 受信のみ。Artwork(JPEG)のファイル転送。マルチパケット対応 |
-| 254 | Time | 154/162 | 受信のみ。OnAirセクション(V3.3.3+)の有無を自動判定する |
+| 254 | Time | 154/162 | 受信のみ。OnAirセクション(V3.3.3+)の有無を自動判定。Timecodeセクション対応 |
 
 ## 未実装メッセージ
 
@@ -47,7 +47,7 @@ node-tcnetにおけるTCNet V3.5.1B仕様の実装状況をまとめる。
 | 項目 | 仕様 | 実装 | 影響 |
 |------|------|------|------|
 | MetaData V3.4以前 | UTF-8(256文字) | 未対応(パケット破棄) | V3.5.0未満のノードからMetaDataを受信できない |
-| Timeパケットサイズ | 162バイト(V3.3.3+) | 154または162バイト | buffer.lengthで自動判定しており、OnAir未対応ノードも正常に処理できる |
+| Timeパケットサイズ | 162バイト(V3.3.3+) | 154または162バイト | buffer.lengthで自動判定しており、OnAir未対応ノードも正常に処理できる。Timecodeセクションは154バイト以上で読み取り |
 
 ## TCNASDP認証
 
