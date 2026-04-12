@@ -721,7 +721,8 @@ export type MultiPacketHeader = {
  * @param buffer - 読み取り元バッファ
  * @returns マルチパケットヘッダー情報
  */
-function readMultiPacketHeader(buffer: Buffer): MultiPacketHeader {
+function readMultiPacketHeader(buffer: Buffer): MultiPacketHeader | null {
+    if (buffer.length < 42) return null;
     return {
         totalDataSize: buffer.readUInt32LE(26),
         totalPackets: buffer.readUInt32LE(30),

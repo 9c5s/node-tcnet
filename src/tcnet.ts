@@ -711,6 +711,7 @@ export class TCNetClient extends EventEmitter {
      * @param rinfo - 送信元情報
      */
     private receiveUnicast(msg: Buffer, rinfo: RemoteInfo): void {
+        if (msg.length < 24) return;
         const mgmtHeader = new nw.TCNetManagementHeader(msg);
         mgmtHeader.read();
         const packet = this.parsePacket(mgmtHeader);
@@ -729,7 +730,7 @@ export class TCNetClient extends EventEmitter {
                 const pendingRequest = this.requests.get(key);
 
                 if (pendingRequest && pendingRequest.assembler) {
-                    // マルチパケット: アセンブラに蓄積
+                    if (msg.length < 42) return;
                     const totalPackets = msg.readUInt32LE(30);
                     const isFilePacket = packet instanceof nw.TCNetFilePacket;
                     if (isFilePacket && (totalPackets === 0 || pendingRequest.fileChunks)) {
