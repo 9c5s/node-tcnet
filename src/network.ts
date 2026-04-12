@@ -683,6 +683,35 @@ export class TCNetDataPacketCUE extends TCNetDataPacket {
 }
 
 /**
+ * マルチパケットヘッダー情報 (byte 26-41)
+ * @category Types
+ */
+export type MultiPacketHeader = {
+    /** データ全体のサイズ (byte 26-29, UInt32LE) */
+    totalDataSize: number;
+    /** パケット総数 (byte 30-33, UInt32LE) */
+    totalPackets: number;
+    /** パケット番号 (byte 34-37, UInt32LE) */
+    packetNo: number;
+    /** データクラスタサイズ (byte 38-41, UInt32LE) */
+    dataClusterSize: number;
+};
+
+/**
+ * マルチパケットヘッダーをバッファから読み取るヘルパー
+ * @param buffer - 読み取り元バッファ
+ * @returns マルチパケットヘッダー情報
+ */
+function readMultiPacketHeader(buffer: Buffer): MultiPacketHeader {
+    return {
+        totalDataSize: buffer.readUInt32LE(26),
+        totalPackets: buffer.readUInt32LE(30),
+        packetNo: buffer.readUInt32LE(34),
+        dataClusterSize: buffer.readUInt32LE(38),
+    };
+}
+
+/**
  * 波形バーを共通パースするファイル内ヘルパー関数。
  * dataStart から source の末尾 (または dataStart + maxBytes の手前) まで
  * 2バイト単位で WaveformBar を生成して返す。
@@ -712,9 +741,12 @@ function parseWaveformBars(source: Buffer, dataStart: number, maxBytes?: number)
  */
 export class TCNetDataPacketSmallWaveForm extends TCNetDataPacket {
     data: WaveformData | null = null;
+    /** マルチパケットヘッダー */
+    multiPacketHeader: MultiPacketHeader | null = null;
 
     /** バッファからパケットデータを読み取る */
     read(): void {
+        this.multiPacketHeader = readMultiPacketHeader(this.buffer);
         // T5: バッファが 2400 バイトに満たない場合でもクラッシュしない
         this.data = { bars: parseWaveformBars(this.buffer, 42, 2400) };
     }
@@ -839,9 +871,12 @@ export class TCNetDataPacketMixer extends TCNetDataPacket {
  */
 export class TCNetDataPacketBeatGrid extends TCNetDataPacket {
     data: BeatGridData | null = null;
+    /** マルチパケットヘッダー */
+    multiPacketHeader: MultiPacketHeader | null = null;
 
     /** バッファからパケットデータを読み取る */
     read(): void {
+        this.multiPacketHeader = readMultiPacketHeader(this.buffer);
         this.readFromOffset(42);
     }
 
@@ -891,9 +926,12 @@ export class TCNetDataPacketBeatGrid extends TCNetDataPacket {
  */
 export class TCNetDataPacketBigWaveForm extends TCNetDataPacket {
     data: WaveformData | null = null;
+    /** マルチパケットヘッダー */
+    multiPacketHeader: MultiPacketHeader | null = null;
 
     /** バッファからパケットデータを読み取る */
     read(): void {
+        this.multiPacketHeader = readMultiPacketHeader(this.buffer);
         // T7: parseWaveformBars ヘルパーを使用して重複を排除する
         this.data = { bars: parseWaveformBars(this.buffer, 42) };
     }
@@ -943,6 +981,8 @@ export class TCNetFilePacket extends TCNetDataPacket {
  */
 export class TCNetDataPacketArtwork extends TCNetDataPacket {
     data: ArtworkData | null = null;
+    /** マルチパケットヘッダー */
+    multiPacketHeader: MultiPacketHeader | null = null;
 
     /** バッファからパケットデータを読み取る */
     read(): void {
@@ -950,6 +990,7 @@ export class TCNetDataPacketArtwork extends TCNetDataPacket {
         if (this.buffer.length < dataStart) {
             return;
         }
+        this.multiPacketHeader = readMultiPacketHeader(this.buffer);
         const clusterSize = this.buffer.readUInt32LE(38);
         const end = getClusterEnd(this.buffer.length, dataStart, clusterSize);
         this.data = { jpeg: Buffer.from(this.buffer.slice(dataStart, end)) };
