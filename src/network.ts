@@ -987,12 +987,21 @@ export class TCNetDataPacketArtwork extends TCNetDataPacket {
  * @category Packets
  */
 export class TCNetErrorPacket extends TCNetPacket {
-    /** エラーボディの生データ (offset 24以降) */
-    errorData!: Buffer;
+    /** データタイプ (byte 24) */
+    dataType!: number;
+    /** レイヤーID (byte 25) */
+    layerId!: number;
+    /** エラーコード (byte 26-27, UInt16LE) 1=Unknown, 13=Not Possible, 14=Empty, 255=OK */
+    code!: number;
+    /** メッセージタイプ (byte 28-29, UInt16LE) */
+    messageType!: number;
 
     /** バッファからパケットデータを読み取る */
     read(): void {
-        this.errorData = Buffer.from(this.buffer.slice(24));
+        this.dataType = this.buffer.readUInt8(24);
+        this.layerId = this.buffer.readUInt8(25);
+        this.code = this.buffer.readUInt16LE(26);
+        this.messageType = this.buffer.readUInt16LE(28);
     }
 
     /** パケットデータをバッファに書き込む */
@@ -1002,10 +1011,10 @@ export class TCNetErrorPacket extends TCNetPacket {
 
     /**
      * パケットのバイト長を返す
-     * @returns パケット長 (-1: 可変長)
+     * @returns パケット長
      */
     length(): number {
-        return -1;
+        return 30;
     }
 
     /**

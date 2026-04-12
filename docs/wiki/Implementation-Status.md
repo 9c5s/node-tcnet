@@ -11,7 +11,7 @@ node-tcnetにおけるTCNet V3.5.1B仕様の実装状況をまとめる。
 | 5 | Status | 300 | 受信のみ |
 | 20 | Request | 26 | 送信のみ |
 | 200 | Data | 可変 | 受信のみ(DataTypeによる) |
-| 13 | Error/Notification | 30 | 受信のみ。TCNASDP認証応答の判定に使用 |
+| 13 | Error/Notification | 30 | 受信のみ。dataType/layerId/code/messageType構造化済み |
 | 30 | Application Specific Data | 可変 | 送受信対応。TCNASDP認証のハンドシェイクに使用 |
 | 204 | File | 可変 | 受信のみ。Artwork(JPEG)のファイル転送。マルチパケット対応 |
 | 254 | Time | 154/162 | 受信のみ。OnAirセクション(V3.3.3+)の有無を自動判定する |

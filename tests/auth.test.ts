@@ -194,13 +194,14 @@ describe("TCNetApplicationDataPacket", () => {
 });
 
 describe("TCNetErrorPacket", () => {
-    it("errorDataにoffset 24以降のバイトが格納される", () => {
+    it("認証成功のErrorパケットを構造化フィールドでパースする", () => {
         // Arrange
-        const buffer = Buffer.alloc(27);
+        const buffer = Buffer.alloc(30);
         writeValidHeader(buffer, TCNetMessageType.Error);
-        buffer.writeUInt8(0xff, 24);
-        buffer.writeUInt8(0xff, 25);
-        buffer.writeUInt8(0xff, 26);
+        buffer.writeUInt8(0xff, 24); // dataType
+        buffer.writeUInt8(0xff, 25); // layerId
+        buffer.writeUInt16LE(0xffff, 26); // code
+        buffer.writeUInt16LE(0x00, 28); // messageType
 
         const packet = new TCNetErrorPacket();
         packet.buffer = buffer;
@@ -210,19 +211,20 @@ describe("TCNetErrorPacket", () => {
         packet.read();
 
         // Assert
-        expect(packet.errorData.length).toBe(3);
-        expect(packet.errorData[0]).toBe(0xff);
-        expect(packet.errorData[1]).toBe(0xff);
-        expect(packet.errorData[2]).toBe(0xff);
+        expect(packet.dataType).toBe(0xff);
+        expect(packet.layerId).toBe(0xff);
+        expect(packet.code).toBe(0xffff);
+        expect(packet.messageType).toBe(0x00);
     });
 
-    it("認証失敗のErrorパケット (0xFFFF0D) をパースする", () => {
+    it("認証失敗のErrorパケット (code=0x000D) をパースする", () => {
         // Arrange
-        const buffer = Buffer.alloc(27);
+        const buffer = Buffer.alloc(30);
         writeValidHeader(buffer, TCNetMessageType.Error);
-        buffer.writeUInt8(0xff, 24);
-        buffer.writeUInt8(0xff, 25);
-        buffer.writeUInt8(0x0d, 26);
+        buffer.writeUInt8(0xff, 24); // dataType
+        buffer.writeUInt8(0xff, 25); // layerId
+        buffer.writeUInt16LE(0x000d, 26); // code = Not Possible
+        buffer.writeUInt16LE(0x00, 28); // messageType
 
         const packet = new TCNetErrorPacket();
         packet.buffer = buffer;
@@ -232,17 +234,17 @@ describe("TCNetErrorPacket", () => {
         packet.read();
 
         // Assert
-        expect(packet.errorData[0]).toBe(0xff);
-        expect(packet.errorData[1]).toBe(0xff);
-        expect(packet.errorData[2]).toBe(0x0d);
+        expect(packet.dataType).toBe(0xff);
+        expect(packet.layerId).toBe(0xff);
+        expect(packet.code).toBe(0x000d);
     });
 
     it("write() はエラーを投げる", () => {
         expect(() => new TCNetErrorPacket().write()).toThrow("not supported!");
     });
 
-    it("length() は -1 を返す (可変長)", () => {
-        expect(new TCNetErrorPacket().length()).toBe(-1);
+    it("length() は 30 を返す", () => {
+        expect(new TCNetErrorPacket().length()).toBe(30);
     });
 
     it("type() は TCNetMessageType.Error(13) を返す", () => {
@@ -274,12 +276,13 @@ function createAppDataPacket(cmd: number, token: number): TCNetApplicationDataPa
     return result;
 }
 
-function createErrorPacket(b0: number, b1: number, b2: number): TCNetErrorPacket {
-    const buffer = Buffer.alloc(27);
+function createErrorPacket(dataType: number, layerId: number, code: number): TCNetErrorPacket {
+    const buffer = Buffer.alloc(30);
     writeValidHeader(buffer, TCNetMessageType.Error);
-    buffer.writeUInt8(b0, 24);
-    buffer.writeUInt8(b1, 25);
-    buffer.writeUInt8(b2, 26);
+    buffer.writeUInt8(dataType, 24);
+    buffer.writeUInt8(layerId, 25);
+    buffer.writeUInt16LE(code, 26);
+    buffer.writeUInt16LE(0, 28);
     const packet = new TCNetErrorPacket();
     packet.buffer = buffer;
     packet.header = createHeader(buffer);

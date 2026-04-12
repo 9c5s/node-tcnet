@@ -1421,13 +1421,9 @@ export class TCNetClient extends EventEmitter {
      * @param packet - 受信した Error パケット
      */
     private handleAuthErrorPacket(packet: nw.TCNetErrorPacket): void {
-        if (this._authState !== "pending" || packet.errorData.length < 3) return;
+        if (this._authState !== "pending") return;
 
-        const b0 = packet.errorData[0];
-        const b1 = packet.errorData[1];
-        const b2 = packet.errorData[2];
-
-        if (b0 === 0xff && b1 === 0xff && b2 === 0xff) {
+        if (packet.dataType === 0xff && packet.layerId === 0xff && packet.code === 255) {
             if (this.authTimeoutId) {
                 clearTimeout(this.authTimeoutId);
                 this.authTimeoutId = null;
@@ -1435,7 +1431,7 @@ export class TCNetClient extends EventEmitter {
             this._authState = "authenticated";
             this.log?.debug("TCNASDP authentication succeeded");
             this.emit("authenticated");
-        } else if (b0 === 0xff && b1 === 0xff && b2 === 0x0d) {
+        } else if (packet.dataType === 0xff && packet.layerId === 0xff && packet.code === 13) {
             if (this.authTimeoutId) {
                 clearTimeout(this.authTimeoutId);
                 this.authTimeoutId = null;
