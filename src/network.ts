@@ -756,6 +756,23 @@ function parseWaveformBars(source: Buffer, dataStart: number, maxBytes?: number)
 }
 
 /**
+ * 末尾の連続する完全ゼロバー (color=0 かつ level=0) を削除する。
+ * BigWaveForm は Bridge が固定長バッファで送信するため、トラックの実データ長を超える
+ * 末尾領域が 0 埋めされている。実データ長に揃えるため末尾の 0 埋めを削除する。
+ * @param bars - 波形バー配列
+ * @returns 末尾ゼロバーを除いた配列
+ */
+function trimTrailingZeroBars(bars: WaveformBar[]): WaveformBar[] {
+    let end = bars.length;
+    while (end > 0) {
+        const b = bars[end - 1];
+        if (b === undefined || b.color !== 0 || b.level !== 0) break;
+        end--;
+    }
+    return end === bars.length ? bars : bars.slice(0, end);
+}
+
+/**
  * 小波形データパケット (1200バー固定)
  * @category Data Packets
  */
@@ -961,7 +978,7 @@ export class TCNetDataPacketBigWaveForm extends TCNetDataPacket {
      * @param assembled - 結合済みバッファ
      */
     readAssembled(assembled: Buffer): void {
-        this.data = { bars: parseWaveformBars(assembled, 0) };
+        this.data = { bars: trimTrailingZeroBars(parseWaveformBars(assembled, 0)) };
     }
 
     /** パケットデータをバッファに書き込む */

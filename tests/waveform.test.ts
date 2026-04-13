@@ -94,20 +94,44 @@ describe("TCNetDataPacketSmallWaveForm", () => {
 });
 
 describe("TCNetDataPacketBigWaveForm", () => {
-    it("アセンブル済みバッファから波形バーをパースする", () => {
+    it("アセンブル済みバッファから波形バーをパースし、末尾のゼロ埋めを削除する", () => {
+        // Bridge は固定長バッファで送信するため、トラック実データ長を超える末尾は 0 埋め。
+        // readAssembled は末尾の (color=0, level=0) 連続を削除し、実データ長に揃える
         const data = Buffer.alloc(10);
         data.writeUInt8(200, 0);
         data.writeUInt8(150, 1);
         data.writeUInt8(100, 2);
         data.writeUInt8(50, 3);
+        // byte 4-9 は 0 埋め (bars[2..4] が (0,0))
 
         const packet = new TCNetDataPacketBigWaveForm();
         packet.readAssembled(data);
 
         expect(packet.data).not.toBeNull();
-        expect(packet.data!.bars).toHaveLength(5);
+        expect(packet.data!.bars).toHaveLength(2);
         expect(packet.data!.bars[0]).toEqual({ color: 200, level: 150 });
         expect(packet.data!.bars[1]).toEqual({ color: 100, level: 50 });
+    });
+
+    it("中間のゼロバーは保持し、末尾の連続ゼロのみ削除する", () => {
+        // data = [200,150, 0,0, 100,50, 0,0, 0,0]
+        //  → bars = [(200,150), (0,0), (100,50), (0,0), (0,0)]
+        //  → trim後 = [(200,150), (0,0), (100,50)]
+        const data = Buffer.from([200, 150, 0, 0, 100, 50, 0, 0, 0, 0]);
+        const packet = new TCNetDataPacketBigWaveForm();
+        packet.readAssembled(data);
+
+        expect(packet.data!.bars).toHaveLength(3);
+        expect(packet.data!.bars[0]).toEqual({ color: 200, level: 150 });
+        expect(packet.data!.bars[1]).toEqual({ color: 0, level: 0 });
+        expect(packet.data!.bars[2]).toEqual({ color: 100, level: 50 });
+    });
+
+    it("全ゼロバッファは空配列を返す", () => {
+        const data = Buffer.alloc(10);
+        const packet = new TCNetDataPacketBigWaveForm();
+        packet.readAssembled(data);
+        expect(packet.data!.bars).toHaveLength(0);
     });
 
     it("通常の read() は個別パケットの波形データをパースする", () => {
