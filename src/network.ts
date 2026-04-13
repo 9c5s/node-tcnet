@@ -739,18 +739,22 @@ export function readMultiPacketHeader(buffer: Buffer): MultiPacketHeader | null 
  * @param source - 読み取り元バッファ
  * @param dataStart - データ開始オフセット
  * @param maxBytes - 最大読み取りバイト数
+ * @param reversed - true の場合 byte[i]=level, byte[i+1]=color として読む (BigWaveForm 用)
  * @returns 波形バーの配列
  */
-function parseWaveformBars(source: Buffer, dataStart: number, maxBytes?: number): WaveformBar[] {
+function parseWaveformBars(source: Buffer, dataStart: number, maxBytes?: number, reversed = false): WaveformBar[] {
     const bars: WaveformBar[] = [];
     const end = maxBytes !== undefined ? Math.min(dataStart + maxBytes, source.length) : source.length;
     // 偶数バイト境界に切り捨て: i + 1 が範囲外にならないよう保証する
     const safeEnd = dataStart + ((end - dataStart) & ~1);
     for (let i = dataStart; i < safeEnd; i += 2) {
-        bars.push({
-            color: source.readUInt8(i),
-            level: source.readUInt8(i + 1),
-        });
+        const a = source.readUInt8(i);
+        const b = source.readUInt8(i + 1);
+        // SmallWaveForm: byte[even]=BColor, byte[odd]=BLevel (仕様書記述「BColor/BLevel」)
+        // BigWaveForm:   byte[even]=BLevel, byte[odd]=BColor (仕様書記述「BLevel/BColor」)
+        // 実機 (BRIDGE64 + CDJ-3000) で BigWaveForm の color 値が極端に低い
+        // (0-255 のうち 0-50 程度) ことから順序が逆であると確認済み
+        bars.push(reversed ? { color: b, level: a } : { color: a, level: b });
     }
     return bars;
 }
@@ -969,8 +973,8 @@ export class TCNetDataPacketBigWaveForm extends TCNetDataPacket {
     /** バッファからパケットデータを読み取る */
     read(): void {
         this.multiPacketHeader = readMultiPacketHeader(this.buffer);
-        // T7: parseWaveformBars ヘルパーを使用して重複を排除する
-        this.data = { bars: parseWaveformBars(this.buffer, 42) };
+        // BigWaveForm は SmallWaveForm と byte 順が逆 (byte[i]=level, byte[i+1]=color)
+        this.data = { bars: parseWaveformBars(this.buffer, 42, undefined, true) };
     }
 
     /**
@@ -978,7 +982,7 @@ export class TCNetDataPacketBigWaveForm extends TCNetDataPacket {
      * @param assembled - 結合済みバッファ
      */
     readAssembled(assembled: Buffer): void {
-        this.data = { bars: trimTrailingZeroBars(parseWaveformBars(assembled, 0)) };
+        this.data = { bars: trimTrailingZeroBars(parseWaveformBars(assembled, 0, undefined, true)) };
     }
 
     /** パケットデータをバッファに書き込む */

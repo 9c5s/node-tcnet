@@ -95,6 +95,7 @@ describe("TCNetDataPacketSmallWaveForm", () => {
 
 describe("TCNetDataPacketBigWaveForm", () => {
     it("アセンブル済みバッファから波形バーをパースし、末尾のゼロ埋めを削除する", () => {
+        // BigWaveForm は byte[i]=level, byte[i+1]=color の順で送信される (SmallWaveForm と逆)。
         // Bridge は固定長バッファで送信するため、トラック実データ長を超える末尾は 0 埋め。
         // readAssembled は末尾の (color=0, level=0) 連続を削除し、実データ長に揃える
         const data = Buffer.alloc(10);
@@ -109,22 +110,22 @@ describe("TCNetDataPacketBigWaveForm", () => {
 
         expect(packet.data).not.toBeNull();
         expect(packet.data!.bars).toHaveLength(2);
-        expect(packet.data!.bars[0]).toEqual({ color: 200, level: 150 });
-        expect(packet.data!.bars[1]).toEqual({ color: 100, level: 50 });
+        expect(packet.data!.bars[0]).toEqual({ level: 200, color: 150 });
+        expect(packet.data!.bars[1]).toEqual({ level: 100, color: 50 });
     });
 
     it("中間のゼロバーは保持し、末尾の連続ゼロのみ削除する", () => {
         // data = [200,150, 0,0, 100,50, 0,0, 0,0]
-        //  → bars = [(200,150), (0,0), (100,50), (0,0), (0,0)]
-        //  → trim後 = [(200,150), (0,0), (100,50)]
+        //  → bars = [(level=200,color=150), (0,0), (level=100,color=50), (0,0), (0,0)]
+        //  → trim後 = [(level=200,color=150), (0,0), (level=100,color=50)]
         const data = Buffer.from([200, 150, 0, 0, 100, 50, 0, 0, 0, 0]);
         const packet = new TCNetDataPacketBigWaveForm();
         packet.readAssembled(data);
 
         expect(packet.data!.bars).toHaveLength(3);
-        expect(packet.data!.bars[0]).toEqual({ color: 200, level: 150 });
-        expect(packet.data!.bars[1]).toEqual({ color: 0, level: 0 });
-        expect(packet.data!.bars[2]).toEqual({ color: 100, level: 50 });
+        expect(packet.data!.bars[0]).toEqual({ level: 200, color: 150 });
+        expect(packet.data!.bars[1]).toEqual({ level: 0, color: 0 });
+        expect(packet.data!.bars[2]).toEqual({ level: 100, color: 50 });
     });
 
     it("全ゼロバッファは空配列を返す", () => {
@@ -134,7 +135,7 @@ describe("TCNetDataPacketBigWaveForm", () => {
         expect(packet.data!.bars).toHaveLength(0);
     });
 
-    it("通常の read() は個別パケットの波形データをパースする", () => {
+    it("通常の read() は個別パケットの波形データをパースする (byte[i]=level, byte[i+1]=color)", () => {
         const buffer = Buffer.alloc(4842);
         buffer.writeUInt8(3, 2);
         buffer.write("TCN", 4, "ascii");
@@ -150,7 +151,7 @@ describe("TCNetDataPacketBigWaveForm", () => {
         packet.read();
 
         expect(packet.data).not.toBeNull();
-        expect(packet.data!.bars[0]).toEqual({ color: 128, level: 64 });
+        expect(packet.data!.bars[0]).toEqual({ level: 128, color: 64 });
     });
 
     it("length() は -1 を返す (可変長)", () => {
@@ -174,7 +175,7 @@ describe("TCNetDataPacketBigWaveForm", () => {
 
         expect(packet.data).not.toBeNull();
         expect(packet.data!.bars).toHaveLength(2);
-        expect(packet.data!.bars[0]).toEqual({ color: 10, level: 20 });
-        expect(packet.data!.bars[1]).toEqual({ color: 30, level: 40 });
+        expect(packet.data!.bars[0]).toEqual({ level: 10, color: 20 });
+        expect(packet.data!.bars[1]).toEqual({ level: 30, color: 40 });
     });
 });
