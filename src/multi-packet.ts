@@ -25,7 +25,13 @@ export class MultiPacketAssembler {
         const clusterSize = buffer.readUInt32LE(38);
         const dataStart = 42;
         const end = getClusterEnd(buffer.length, dataStart, clusterSize);
-        if (clusterSize > 0 && end !== dataStart + clusterSize) return false;
+        // clusterSize と実バッファ長が不一致の場合、中間パケットは破損とみなし拒否する。
+        // 最終パケット (packetNo === totalPackets - 1) は Bridge (BRIDGE64) が clusterSize を
+        // 実データ長に更新せず中間と同じ値を送ってくるため、実バッファ範囲での受け入れを許容する
+        if (clusterSize > 0 && end !== dataStart + clusterSize) {
+            const isLastPacket = packetNo === newTotalPackets - 1;
+            if (!isLastPacket) return false;
+        }
         // T3: Buffer.from() でコピーを保持し、元バッファへの参照共有を防ぐ
         this.packets.set(packetNo, Buffer.from(buffer.slice(dataStart, end)));
         return this.packets.size >= this.totalPackets;

@@ -99,13 +99,44 @@ describe("MultiPacketAssembler", () => {
         expect(assembler.add(shortBuf)).toBe(false);
     });
 
-    it("clusterSize がバッファ実長を超えるパケットを拒否する", () => {
+    it("中間パケットで clusterSize がバッファ実長を超える場合は拒否する", () => {
+        // Arrange: totalPackets=3 の中間パケット (packetNo=1) で clusterSize 不一致
         const assembler = new MultiPacketAssembler();
         const buf = Buffer.alloc(50); // 42 + 8 = 50 バイト
-        buf.writeUInt32LE(1, 30); // totalPackets = 1
-        buf.writeUInt32LE(0, 34); // packetNo = 0
+        buf.writeUInt32LE(3, 30); // totalPackets = 3
+        buf.writeUInt32LE(1, 34); // packetNo = 1 (中間)
         buf.writeUInt32LE(100, 38); // clusterSize = 100 (実データは8バイトしかない)
+
+        // Act / Assert: 中間パケットの破損は拒否される
         expect(assembler.add(buf)).toBe(false);
+    });
+
+    it("最終パケットで clusterSize がバッファ実長を超える場合は実バッファ範囲で受け入れる", () => {
+        // Bridge (BRIDGE64) は最終パケットで clusterSize を実長に更新せず、
+        // 中間パケットと同じ値を送信する。node-tcnet は実バッファ範囲での受け入れを許容する。
+        // Arrange: 中間 2 枚 + 最終パケット (実データ短) の 3 枚構成
+        const assembler = new MultiPacketAssembler();
+        const buf0 = createMultiPacketBuffer(3, 0, 4, [10, 11, 12, 13]);
+        const buf1 = createMultiPacketBuffer(3, 1, 4, [20, 21, 22, 23]);
+        // 最終パケット: clusterSize=4 (中間と同じ) だが実データは 2 バイト
+        const lastBuf = Buffer.alloc(44); // 42 + 2
+        lastBuf.writeUInt32LE(3, 30);
+        lastBuf.writeUInt32LE(2, 34);
+        lastBuf.writeUInt32LE(4, 38); // clusterSize = 4 (中間と同じ値)
+        lastBuf.writeUInt8(30, 42);
+        lastBuf.writeUInt8(31, 43);
+
+        // Act
+        assembler.add(buf0);
+        assembler.add(buf1);
+        const complete = assembler.add(lastBuf);
+        const result = assembler.assemble();
+
+        // Assert: 3 枚揃い、最終パケットは実バッファ範囲 (2 バイト) だけ採用される
+        expect(complete).toBe(true);
+        expect(result.length).toBe(4 + 4 + 2);
+        expect(result.readUInt8(8)).toBe(30);
+        expect(result.readUInt8(9)).toBe(31);
     });
 
     it("totalPackets が変わったパケットを無視して正しく組み立てる", () => {
