@@ -769,20 +769,26 @@ function parseWaveformBars(source: Buffer, dataStart: number, maxBytes?: number,
 }
 
 /**
- * 末尾の連続する完全ゼロバー (color=0 かつ level=0) を削除する。
- * BigWaveForm は Bridge が固定長バッファで送信するため、トラックの実データ長を超える
- * 末尾領域が 0 埋めされている。実データ長に揃えるため末尾の 0 埋めを削除する。
- * @param bars - 波形バー配列
- * @returns 末尾ゼロバーを除いた配列
+ * BigWaveForm のアセンブル済み波形バー配列から末尾の (color=0, level=0) 連続を
+ * 削除する。Bridge は固定長バッファで送信するため、トラック実データ長を超える
+ * 末尾領域および倍密度モード時の後半ゼロ埋め領域を実データ長に揃える。
+ *
+ * 曲ごとの 1bar あたりの時間は rekordbox waveform 仕様上 1/150 秒 (≈ 6.667ms)
+ * で一定のため、UI 側は `trackLength / bars.length` ではなく固定定数を用いて
+ * 描画することを想定する。この関数は純粋に末尾ゼロ除去のみを担当する。
+ * @param bars - パースされた波形バー配列
+ * @returns 末尾のゼロバーを取り除いた配列 (変更がなければ入力をそのまま返す)
  */
-function trimTrailingZeroBars(bars: WaveformBar[]): WaveformBar[] {
-    let end = bars.length;
-    while (end > 0) {
-        const b = bars[end - 1];
+function processBigWaveformBars(bars: WaveformBar[]): WaveformBar[] {
+    if (bars.length === 0) return bars;
+    let lastNonZero = bars.length - 1;
+    while (lastNonZero >= 0) {
+        const b = bars[lastNonZero];
         if (b === undefined || b.color !== 0 || b.level !== 0) break;
-        end--;
+        lastNonZero--;
     }
-    return end === bars.length ? bars : bars.slice(0, end);
+    const effectiveEnd = lastNonZero + 1;
+    return effectiveEnd === bars.length ? bars : bars.slice(0, effectiveEnd);
 }
 
 /**
@@ -987,11 +993,14 @@ export class TCNetDataPacketBigWaveForm extends TCNetDataPacket {
     }
 
     /**
-     * アセンブル済みバッファから波形データをパースする
+     * アセンブル済みバッファから波形データをパースする。
+     * Bridge の送信パターン (通常モード / 倍密度モード) を判定し、
+     * UI の `barDurationMs = trackLength / bars.length` が真値 (≈ 6.67ms) に
+     * 近づくよう bars を整形する (詳細は processBigWaveformBars の JSDoc を参照)。
      * @param assembled - 結合済みバッファ
      */
     readAssembled(assembled: Buffer): void {
-        this.data = { bars: trimTrailingZeroBars(parseWaveformBars(assembled, 0, undefined, true)) };
+        this.data = { bars: processBigWaveformBars(parseWaveformBars(assembled, 0, undefined, true)) };
     }
 
     /** パケットデータをバッファに書き込む */
