@@ -545,6 +545,15 @@ export class TCNetDataPacket extends TCNetPacket {
 
 /**
  * TCNetレイヤーの同期マスター状態を表す列挙
+ *
+ * **仕様書と実機挙動の差分:**
+ * - TCNet仕様書 V3.5.1B (byte 29): `0=Slave, 1=Master` の layer 単位 flag
+ * - Pioneer PRO DJ LINK Bridge / CDJ-3000 実機: 「master deck の
+ *   player number (1-4)」を全 layer に共通 broadcast
+ *
+ * 実機ではこの enum の範囲を超える 2-4 の値が観測される。
+ * アプリ側で master 判定を行う場合は layer 単位 flag として扱わず、
+ * `metrics.syncMaster === 自分の player number` で比較することを推奨する。
  * @category Enums
  */
 export const TCNetLayerSyncMaster = {
