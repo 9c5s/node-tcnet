@@ -793,6 +793,19 @@ export class TCNetClient extends EventEmitter {
         } else if (packet instanceof nw.TCNetOptInPacket) {
             // ユニキャスト経由でOptInを直接受信 -> 宛先に登録された
             if (mgmtHeader.nodeType == nw.NodeType.Master) {
+                // connect() 経由のマルチアダプタ検出フェーズでは、Bridge のように
+                // Master OptIn を broadcast せず unicast で直接送ってくる実装に対応するため、
+                // 送信元アドレスから adapter を逆引きして収束させる
+                if (!this.connected && this.detectingAdapter) {
+                    const resolvedName = this.resolveAdapterByRemoteAddress(rinfo.address);
+                    if (resolvedName) {
+                        void this.convergeToAdapter(resolvedName, rinfo, packet.nodeListenerPort).catch((err) => {
+                            const error = err instanceof Error ? err : new Error(String(err));
+                            this.log?.error(error);
+                        });
+                    }
+                    return;
+                }
                 // selectedAdapterのサブネット外からのMasterを無視する
                 if (!this.isInSelectedSubnet(rinfo.address)) return;
                 this.server = rinfo;
