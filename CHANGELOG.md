@@ -1,5 +1,21 @@
 # @9c5s/node-tcnet
 
+## 0.10.0
+
+### Minor Changes
+
+- 4b902ee: MixerパケットのMixer ID誤変換を修正し、MixerData型に仕様上の全フィールドを追加
+- 4b902ee: パケットフィールド拡充: Timecodeセクション, Error構造化, マルチパケットヘッダー公開, APP SPECIFIC
+
+    BREAKING CHANGE: TCNetErrorPacket.errorDataを削除し、dataType/layerId/code/messageTypeに置換
+
+### Patch Changes
+
+- 4b902ee: 未定義dataTypeのDataパケット受信時にクラッシュする問題を修正
+- baff2de: pitchBendを符号付き16bitで読み取るよう修正
+
+    `readUInt16LE`を`readInt16LE`に変更し、負のピッチ値が正しく負の数値として返されるようにした。
+
 ## 0.9.0
 
 ### Minor Changes
