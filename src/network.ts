@@ -260,6 +260,8 @@ export class TCNetOptOutPacket extends TCNetPacket {
  */
 export const TCNetLayerStatus = {
     IDLE: 0,
+    /** 仕様外。Bridge が CDJ の再生状態をそのまま転送した値 */
+    LOADING: 2,
     PLAYING: 3,
     LOOPING: 4,
     PAUSED: 5,
@@ -269,6 +271,8 @@ export const TCNetLayerStatus = {
     FFWD: 9,
     FFRV: 10,
     HOLD: 11,
+    /** 仕様外。Bridge が CDJ の再生状態をそのまま転送した値 (トラック終端で停止) */
+    ENDED: 17,
 } as const;
 /** TCNetレイヤーステータスの値型 */
 export type TCNetLayerStatus = (typeof TCNetLayerStatus)[keyof typeof TCNetLayerStatus];

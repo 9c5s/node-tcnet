@@ -568,6 +568,24 @@ describe("TCNetDataPacketMetrics", () => {
         expect(packet.data!.trackID).toBe(777);
     });
 
+    it.each([
+        { value: 2, expected: TCNetLayerStatus.LOADING, label: "LOADING" },
+        { value: 17, expected: TCNetLayerStatus.ENDED, label: "ENDED" },
+    ])("Bridge が転送する仕様外の state=$value を $label として返す", ({ value, expected }) => {
+        const buffer = Buffer.alloc(122);
+        buffer.writeUInt8(3, 2);
+        buffer.write("TCN", 4, "ascii");
+        buffer.writeUInt8(200, 7);
+        buffer.writeUInt8(2, 24);
+        buffer.writeUInt8(1, 25);
+        buffer.writeUInt8(value, 27);
+        const packet = new TCNetDataPacketMetrics();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+        expect(packet.data!.state).toBe(expected);
+    });
+
     it("write() はエラーを投げる", () => {
         const buffer = Buffer.alloc(122);
         const packet = new TCNetDataPacketMetrics();
