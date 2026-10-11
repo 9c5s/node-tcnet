@@ -56,6 +56,8 @@ if (meta instanceof TCNetDataPacketMetadata && meta.info) {
 }
 ```
 
+BeatGrid、BigWaveForm、Artwork のように複数のパケットに分割されるデータも、`requestData` の戻り値で受け取る。要求待ちのない分割パケットは `data` イベントで通知されない。
+
 ## Windowsでの注意点
 
 `broadcastInterface`にはOSのネットワークインターフェース名を指定する。
