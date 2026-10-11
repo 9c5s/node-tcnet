@@ -53,6 +53,9 @@ class TestTCNetClient extends TCNetClient {
             (this as any).connected = true;
         };
     }
+    public getUnicastRecvBufferSize(): number {
+        return (this as any).unicastSocket.getRecvBufferSize();
+    }
     public callWaitConnected(): Promise<void> {
         return (this as any).waitConnected();
     }
@@ -152,6 +155,22 @@ describe("connect() 新挙動", () => {
             await client.disconnect();
         } finally {
             vi.useRealTimers();
+        }
+    });
+
+    it("unicast ソケットの受信バッファを unicastRecvBufferSize 以上にする", async () => {
+        const client = new TestTCNetClient();
+        client.setConfig({
+            detectionTimeout: 100,
+            requestTimeout: 100,
+            unicastPort: uniquePort(),
+            unicastRecvBufferSize: 256 * 1024,
+        });
+        await client.connect();
+        try {
+            expect(client.getUnicastRecvBufferSize()).toBeGreaterThanOrEqual(256 * 1024);
+        } finally {
+            await client.disconnect();
         }
     });
 

@@ -54,6 +54,8 @@ export type TCNetLogger = {
 export class TCNetConfiguration {
     logger: TCNetLogger | null = null;
     unicastPort = 65023;
+    /** unicast ソケットの受信バッファのバイト数。複数レイヤーの BigWaveForm がほぼ同時に届くと OS の既定値 (Windows は 64KB) では溢れる */
+    unicastRecvBufferSize = 4 * 1024 * 1024;
     applicationCode = 0xffff;
     nodeId = Math.floor(Math.random() * 0xffff);
     nodeName = "TCNet.js";
@@ -209,7 +211,10 @@ export class TCNetClient extends EventEmitter {
 
         try {
             // unicastソケット (1つだけ)
-            this.unicastSocket = createSocket({ type: "udp4", reuseAddr: false }, this.receiveUnicast.bind(this));
+            this.unicastSocket = createSocket(
+                { type: "udp4", reuseAddr: false, recvBufferSize: this.config.unicastRecvBufferSize },
+                this.receiveUnicast.bind(this),
+            );
             await this.bindSocket(this.unicastSocket, this.config.unicastPort, "0.0.0.0");
 
             // アダプタマップを構築する
@@ -506,7 +511,10 @@ export class TCNetClient extends EventEmitter {
         await this.bindSocket(this.timestampSocket, TCNET_TIMESTAMP_PORT, this.config.broadcastListeningAddress);
         this.timestampSocket.setBroadcast(true);
 
-        this.unicastSocket = createSocket({ type: "udp4", reuseAddr: false }, this.receiveUnicast.bind(this));
+        this.unicastSocket = createSocket(
+            { type: "udp4", reuseAddr: false, recvBufferSize: this.config.unicastRecvBufferSize },
+            this.receiveUnicast.bind(this),
+        );
         await this.bindSocket(this.unicastSocket, this.config.unicastPort, "0.0.0.0");
 
         this.config.broadcastAddress = broadcastAddr;
