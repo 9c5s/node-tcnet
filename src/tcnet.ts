@@ -778,6 +778,9 @@ export class TCNetClient extends EventEmitter {
                             }, this.config.requestTimeout);
                         }
                     }
+                } else if (MULTI_PACKET_TYPES.has(dataPacket.dataType)) {
+                    // 要求待ちのない分割データは組み立てられないため破棄する
+                    return;
                 } else {
                     // 単一パケット: 従来通り
                     if (this.connected) {

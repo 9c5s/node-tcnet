@@ -42,6 +42,34 @@ describe("receiveUnicast マルチパケット対応", () => {
     });
 });
 
+describe("receiveUnicast 要求待ちのないマルチパケット型", () => {
+    it.each([
+        { name: "BeatGrid", dataType: nw.TCNetDataPacketType.BeatGridData, messageType: nw.TCNetMessageType.Data },
+        {
+            name: "BigWaveForm",
+            dataType: nw.TCNetDataPacketType.BigWaveFormData,
+            messageType: nw.TCNetMessageType.Data,
+        },
+        { name: "Artwork", dataType: nw.TCNetDataPacketType.ArtworkData, messageType: nw.TCNetMessageType.File },
+    ])("$name の分割パケットは断片のまま data イベントで emit されない", ({ dataType, messageType }) => {
+        const client = new TestTCNetClient();
+        client.simulateConnected();
+        const handler = vi.fn();
+        client.on("data", handler);
+
+        const buffer = Buffer.alloc(42 + 2400);
+        writeValidHeader(buffer, messageType);
+        buffer.writeUInt8(dataType, 24);
+        buffer.writeUInt8(1, 25);
+        buffer.writeUInt32LE(3, 30); // totalPackets
+        buffer.writeUInt32LE(1, 34); // packetNo
+        buffer.writeUInt32LE(2400, 38); // clusterSize
+        client.simulateUnicast(buffer);
+
+        expect(handler).not.toHaveBeenCalled();
+    });
+});
+
 describe("receiveUnicast エラーハンドリング", () => {
     it("26バイト未満のバッファでクラッシュしない", () => {
         const client = new TestTCNetClient();
