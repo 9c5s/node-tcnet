@@ -586,6 +586,21 @@ describe("TCNetDataPacketMetrics", () => {
         expect(packet.data!.state).toBe(expected);
     });
 
+    it("syncMaster は Bridge が送る master deck の player number をそのまま返す", () => {
+        const buffer = Buffer.alloc(122);
+        buffer.writeUInt8(3, 2);
+        buffer.write("TCN", 4, "ascii");
+        buffer.writeUInt8(200, 7);
+        buffer.writeUInt8(2, 24);
+        buffer.writeUInt8(1, 25);
+        buffer.writeUInt8(3, 29);
+        const packet = new TCNetDataPacketMetrics();
+        packet.buffer = buffer;
+        packet.header = createHeader(buffer);
+        packet.read();
+        expect(packet.data!.syncMaster).toBe(3);
+    });
+
     it("write() はエラーを投げる", () => {
         const buffer = Buffer.alloc(122);
         const packet = new TCNetDataPacketMetrics();

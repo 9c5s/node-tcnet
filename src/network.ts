@@ -577,10 +577,12 @@ export type TCNetLayerSyncMaster = (typeof TCNetLayerSyncMaster)[keyof typeof TC
  */
 export type MetricsData = {
     state: TCNetLayerStatus;
-    syncMaster: TCNetLayerSyncMaster;
+    /** 仕様は {@link TCNetLayerSyncMaster} の値。Bridge 実機は master deck の player number (1-4) を返す */
+    syncMaster: number;
     beatMarker: number;
     trackLength: number;
     currentPosition: number;
+    /** 仕様は 32768 = 100%。Bridge 実機は 1048576 (2^20) = 100% */
     speed: number;
     beatNumber: number;
     bpm: number;
@@ -599,7 +601,7 @@ export class TCNetDataPacketMetrics extends TCNetDataPacket {
     read(): void {
         this.data = {
             state: this.buffer.readUInt8(27) as TCNetLayerStatus,
-            syncMaster: this.buffer.readUInt8(29) as TCNetLayerSyncMaster,
+            syncMaster: this.buffer.readUInt8(29),
             beatMarker: this.buffer.readUInt8(31),
             trackLength: this.buffer.readUInt32LE(32),
             currentPosition: this.buffer.readUInt32LE(36),
